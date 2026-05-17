@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Platform-level settings stored per admin workspace.
+model Settings {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  geminiKey     String   @default("")
+  playwrightUrl String   @default("wss://playwright.structora.ai/ws")
+  hasValidated  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// SaaS user registry — all users including admin accounts.
+model User {
+  id         String   @id @default(cuid())
+  name       String
+  username   String   @unique
+  email      String   @unique
+  mobile     String   @default("")
+  plan       Plan     @default(Basic)
+  status     Status   @default(Active)
+  role       Role     @default(user)
+  password   String   // bcrypt hashed
+  joinedDate DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+enum Plan {
+  Basic
+  Pro
+  Enterprise
+}
+
+enum Status {
+  Active
+  Suspended
+}
+
+enum Role {
+  admin
+  user
+}

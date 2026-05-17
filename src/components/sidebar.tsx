@@ -50,7 +50,7 @@ export function Sidebar({
     { id: "console", label: "Scraping Console", icon: Cpu, roles: ["admin", "user"] },
     { id: "services", label: "Scraper Services", icon: Compass, roles: ["admin", "user"] },
     { id: "users", label: "User Access Control", icon: Users, roles: ["admin"] },
-    { id: "billing", label: "SaaS Subscription", icon: CreditCard, roles: ["admin"] },
+    { id: "billing", label: "SaaS Subscription", icon: CreditCard, roles: ["admin", "user"] },
     { id: "settings", label: "Platform Settings", icon: Settings, roles: ["admin"] },
   ] as const;
 

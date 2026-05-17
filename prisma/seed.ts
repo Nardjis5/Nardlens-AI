@@ -1,0 +1,70 @@
+/**
+ * @file prisma/seed.ts
+ * @description Seeds the PostgreSQL database with the default admin accounts.
+ * Run via: npx prisma db seed
+ * Automatically runs after `prisma db push` in development.
+ */
+
+import { prisma } from "../src/lib/prisma";
+import bcrypt from "bcryptjs";
+
+async function main() {
+  console.log("[Seed] Seeding database...");
+
+  // Seed primary admin: webnazar@gmail.com
+  const email1 = "webnazar@gmail.com";
+  const user1 = await prisma.user.findUnique({ where: { email: email1 } });
+
+  if (!user1) {
+    const hashedPassword = await bcrypt.hash("Admin@2025#", 12);
+    await prisma.user.create({
+      data: {
+        name: "Administrator",
+        username: "webnazar",
+        email: email1,
+        mobile: "",
+        plan: "Enterprise",
+        status: "Active",
+        role: "admin",
+        password: hashedPassword,
+      },
+    });
+    console.log("[Seed] ✅ Seeded primary admin: webnazar@gmail.com");
+  } else {
+    console.log("[Seed] ℹ️  Primary admin account already exists.");
+  }
+
+  // Seed secondary admin: admin@webnazar.com
+  const email2 = "admin@webnazar.com";
+  const user2 = await prisma.user.findUnique({ where: { email: email2 } });
+
+  if (!user2) {
+    const hashedPassword = await bcrypt.hash("Admin@2025#", 12);
+    await prisma.user.create({
+      data: {
+        name: "Admin",
+        username: "admin",
+        email: email2,
+        mobile: "",
+        plan: "Enterprise",
+        status: "Active",
+        role: "admin",
+        password: hashedPassword,
+      },
+    });
+    console.log("[Seed] ✅ Seeded secondary admin: admin@webnazar.com");
+  } else {
+    console.log("[Seed] ℹ️  Secondary admin account already exists.");
+  }
+
+  console.log("[Seed] Done.");
+}
+
+main()
+  .catch((e) => {
+    console.error("[Seed] Error:", e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

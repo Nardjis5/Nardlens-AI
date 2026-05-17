@@ -26,25 +26,17 @@ interface SaaSUser {
 
 interface AuthCardProps {
   /**
-   * The list of registered SaaS users for credential validation.
-   */
-  users: SaaSUser[];
-  /**
    * Callback executed upon successful authentication.
-   * Passes the mock authenticated username, email, and role.
+   * Passes the authenticated username, email, and role.
    */
   onSuccess: (user: { email: string; name: string; role: "admin" | "user" }) => void;
-  /**
-   * Callback executed when a new user registers.
-   */
-  onRegister: (newUser: SaaSUser) => void;
   /**
    * The default active view mode for the card.
    */
   defaultMode?: "login" | "register";
 }
 
-export function AuthCard({ users, onSuccess, onRegister, defaultMode = "login" }: AuthCardProps) {
+export function AuthCard({ onSuccess, defaultMode = "login" }: AuthCardProps) {
   // Toggle state between Login ('login') and Register ('register') views
   const [mode, setMode] = useState<"login" | "register">(defaultMode);
   
@@ -61,16 +53,13 @@ export function AuthCard({ users, onSuccess, onRegister, defaultMode = "login" }
   const [loading, setLoading] = useState(false);
 
   /**
-   * Processes the form validation and manages the mock API login/registration lifecycle.
+   * Processes the form validation and manages the real API login/registration lifecycle.
    * Encapsulates validation conditions with precise state updates.
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
-
-    // Simple analytical delay simulating database lookup and authentication round-trip
-    await new Promise((resolve) => setTimeout(resolve, 800));
 
     // Basic Input Validations
     if (!email || !password) {
@@ -79,84 +68,42 @@ export function AuthCard({ users, onSuccess, onRegister, defaultMode = "login" }
       return;
     }
 
-    const normEmail = email.toLowerCase().trim();
-    const isAdmin = normEmail === "admin" || normEmail === "admin@structora.ai" || normEmail === "webnazar@gmail.com";
-
     if (mode === "login") {
-      if (isAdmin) {
-        if (password === "Admin@2025#") {
-          onSuccess({
-            email: normEmail === "webnazar@gmail.com" ? "webnazar@gmail.com" : "admin@structora.ai",
-            name: normEmail === "webnazar@gmail.com" ? "Web Nazar" : "ADMINISTRATOR",
-            role: "admin"
-          });
-          setLoading(false);
-          return;
-        } else {
-          setError("Incorrect password for administrator access.");
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.error || "Authentication failed.");
           setLoading(false);
           return;
         }
-      }
 
-      // Check registered users
-      const foundUser = users.find(u => u.email.toLowerCase().trim() === normEmail);
-      if (!foundUser) {
-        setError("Account not found. Please click 'Sign Up Now' to register.");
+        onSuccess({
+          email: data.user.email,
+          name: data.user.name,
+          role: data.user.role,
+        });
+      } catch (err: any) {
+        setError("Network error. Please try again.");
+      } finally {
         setLoading(false);
-        return;
       }
-      
-      if (foundUser.status === "Suspended") {
-        setError("This account has been suspended by the administrator.");
-        setLoading(false);
-        return;
-      }
-
-      if (foundUser.password !== password) {
-        setError("Incorrect password.");
-        setLoading(false);
-        return;
-      }
-
-      onSuccess({
-        email: foundUser.email,
-        name: foundUser.name,
-        role: "user"
-      });
-      setLoading(false);
-      return;
-
     } else {
       // REGISTER MODE
-      if (isAdmin) {
-        setError("Cannot register as an administrator account.");
-        setLoading(false);
-        return;
-      }
-
       if (!name) {
         setError("Please enter your name.");
         setLoading(false);
         return;
       }
       
-      const normUsername = username.toLowerCase().trim();
-      if (!normUsername) {
+      if (!username) {
         setError("Please enter a unique username.");
-        setLoading(false);
-        return;
-      }
-      
-      const usernameExists = users.some(u => u.username?.toLowerCase().trim() === normUsername);
-      if (usernameExists) {
-        setError("This username is already taken by another account.");
-        setLoading(false);
-        return;
-      }
-
-      if (!mobile) {
-        setError("Please enter your mobile number.");
         setLoading(false);
         return;
       }
@@ -166,40 +113,38 @@ export function AuthCard({ users, onSuccess, onRegister, defaultMode = "login" }
         setLoading(false);
         return;
       }
+
       if (password.length < 6) {
         setError("Security Policy: Password must be at least 6 characters long.");
         setLoading(false);
         return;
       }
 
-      // Check duplicate email
-      const emailExists = users.some(u => u.email.toLowerCase().trim() === normEmail);
-      if (emailExists) {
-        setError("An account with this email address is already registered.");
+      try {
+        const response = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, username, email, mobile, password }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.error || "Registration failed.");
+          setLoading(false);
+          return;
+        }
+
+        onSuccess({
+          email: data.user.email,
+          name: data.user.name,
+          role: data.user.role,
+        });
+      } catch (err: any) {
+        setError("Network error. Please try again.");
+      } finally {
         setLoading(false);
-        return;
       }
-
-      // Create new SaaS User
-      const newSaaSUser: SaaSUser = {
-        id: Math.random().toString(36).substring(2, 9),
-        name,
-        username: normUsername,
-        email,
-        mobile,
-        plan: "Basic",
-        status: "Active",
-        joinedDate: new Date().toISOString().split("T")[0],
-        password
-      };
-
-      onRegister(newSaaSUser);
-      onSuccess({
-        email: newSaaSUser.email,
-        name: newSaaSUser.name,
-        role: "user"
-      });
-      setLoading(false);
     }
   };
 
