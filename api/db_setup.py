@@ -11,21 +11,26 @@ import re
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
+import urllib.parse
+
 def parse_database_url(url: str) -> dict:
     """
-    Parses a standard PostgreSQL connection URL into its components.
-    Format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+    Parses a standard PostgreSQL connection URL into its components using urllib.
+    Supports postgres:// and postgresql:// formats.
     """
-    pattern = r"postgresql://([^:]+):([^@]+)@([^:/]+):?(\d+)?/([^?]+)"
-    match = re.match(pattern, url)
-    if not match:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ["postgres", "postgresql"]:
         raise ValueError(f"Invalid DATABASE_URL format: {url}")
+    
+    path = parsed.path.lstrip('/')
+    db_name = path.split('?')[0]
+    
     return {
-        "user": match.group(1),
-        "password": match.group(2),
-        "host": match.group(3),
-        "port": int(match.group(4) or 5432),
-        "database": match.group(5).split("?")[0],
+        "user": parsed.username or "",
+        "password": parsed.password or "",
+        "host": parsed.hostname or "127.0.0.1",
+        "port": parsed.port or 5432,
+        "database": db_name,
     }
 
 def auto_setup_database():
