@@ -30,92 +30,39 @@ interface UserSession {
   email: string;
   name: string;
   role: "admin" | "user";
+  plan: string;
 }
 
 export default function Home() {
   // Session state: null indicates a public/anonymous guest, UserSession details indicate active login
   const [session, setSession] = useState<UserSession | null>(null);
 
-  // Persistent user registry database state
-  const [users, setUsers] = useState<SaaSUser[]>([]);
-
-  // Safely initialize state from localStorage on client mount to avoid hydration mismatch
+  // Safely initialize session from PostgreSQL via secure HTTP-only cookies
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      // Hydrate Session
-      const storedSession = localStorage.getItem("structora_session");
-      if (storedSession) {
-        try {
-          setSession(JSON.parse(storedSession));
-        } catch (e) {
-          console.error("Failed to parse local session:", e);
+    fetch("/api/auth/me")
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error("Unauthorized");
+      })
+      .then(data => {
+        if (data.authenticated) {
+          setSession(data.user);
         }
-      }
-
-      const stored = localStorage.getItem("structora_users");
-      if (stored) {
-        try {
-          let parsedUsers = JSON.parse(stored);
-          if (!parsedUsers.find((u: SaaSUser) => u.email === "webnazar@gmail.com")) {
-             parsedUsers = [{ id: "100", name: "Web Nazar", username: "webnazar", email: "webnazar@gmail.com", mobile: "+91 98000 00000", plan: "Enterprise", status: "Active", joinedDate: new Date().toISOString().split('T')[0], password: "password123" }, ...parsedUsers];
-             localStorage.setItem("structora_users", JSON.stringify(parsedUsers));
-          }
-          setUsers(parsedUsers);
-          return;
-        } catch (e) {
-          console.error("Failed to parse local user registry:", e);
-        }
-      }
-      
-      // Fallback baseline mock SaaS accounts
-      const defaultUsers: SaaSUser[] = [
-        { id: "100", name: "Web Nazar", username: "webnazar", email: "webnazar@gmail.com", mobile: "+91 98000 00000", plan: "Enterprise", status: "Active", joinedDate: new Date().toISOString().split('T')[0], password: "password123" },
-        { id: "101", name: "David Chen", username: "dchen", email: "dchen@techstream.com", mobile: "+91 98200 11223", plan: "Enterprise", status: "Active", joinedDate: "2026-01-15", password: "password123" },
-        { id: "102", name: "Sarah Jenkins", username: "sarahj", email: "sarah.j@globalbrands.org", mobile: "+91 98199 44556", plan: "Pro", status: "Active", joinedDate: "2026-03-02", password: "password123" },
-        { id: "103", name: "Michael Ross", username: "mross", email: "mross@einnovate.net", mobile: "+91 98333 77889", plan: "Basic", status: "Suspended", joinedDate: "2026-04-18", password: "password123" },
-      ];
-      setUsers(defaultUsers);
-      localStorage.setItem("structora_users", JSON.stringify(defaultUsers));
-    }
+      })
+      .catch(() => {
+        setSession(null);
+      });
   }, []);
-
-  /**
-   * Toggles the user status or plan and persists it in localStorage.
-   */
-  const saveUsers = (updatedUsers: SaaSUser[]) => {
-    setUsers(updatedUsers);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("structora_users", JSON.stringify(updatedUsers));
-    }
-  };
-
-  /**
-   * Registers a new user session.
-   */
-  const handleRegisterUser = (newUser: SaaSUser) => {
-    saveUsers([...users, newUser]);
-  };
-
-  /**
-   * Handler executed upon mock authentication success.
-   * Updates state, cache-controls local variables, and triggers visual transition to the console dashboard.
-   */
-  const handleAuthSuccess = (userData: UserSession) => {
-    setSession(userData);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("structora_session", JSON.stringify(userData));
-    }
-    setShowAuthModal(false);
-  };
 
   /**
    * Logouts the active user, clearing local session states.
    */
   const handleLogout = () => {
-    setSession(null);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("structora_session");
-    }
+    fetch("/api/auth/logout", { method: "POST" })
+      .then(() => {
+        setSession(null);
+      })
+      .catch(err => console.error("Logout failed:", err));
   };
 
   return (
@@ -156,8 +103,6 @@ export default function Home() {
             <DashboardMock 
               user={session} 
               onLogout={handleLogout} 
-              saasUsers={users}
-              onUpdateUsers={saveUsers}
             />
           </Suspense>
         ) : (

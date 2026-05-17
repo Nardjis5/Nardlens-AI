@@ -49,3 +49,6 @@ __pycache__/
 dist/
 .Python
 api/__pycache__/
+
+/src/generated/prisma
+github_deploy_key*

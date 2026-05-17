@@ -48,7 +48,7 @@ interface SaaSUser {
 }
 
 interface DashboardProps {
-  user: { name: string; email: string; role: "admin" | "user" };
+  user: { name: string; email: string; role: "admin" | "user"; plan: string };
   onLogout: () => void;
   saasUsers?: SaaSUser[];
   onUpdateUsers?: (users: SaaSUser[]) => void;
@@ -58,6 +58,7 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
   // Config state / secure role fallback to support Ph.D. dynamic access testing
   const safeUser = {
     ...user,
+    plan: user.plan || "Basic",
     role: user.role || (user.email.toLowerCase().includes("admin") ? ("admin" as const) : ("user" as const))
   };
 
@@ -79,11 +80,14 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
 
   // Scraping Simulator States
-  const [searchTerm, setSearchTerm] = useState("Cement Suppliers in Mumbai");
+  const [searchTerm, setSearchTerm] = useState("");
   const [scrapingStatus, setScrapingStatus] = useState<"idle" | "discovery" | "crawling" | "processing" | "completed">("idle");
   const [scrapedData, setScrapedData] = useState<ScrapedCompany[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
   const [activeStep, setActiveStep] = useState(0);
+  const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
+  const [currentUrlIndex, setCurrentUrlIndex] = useState<number | null>(null);
+  const [activeInputTab, setActiveInputTab] = useState<"search" | "upload">("search");
 
   // State for record selections
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
@@ -146,21 +150,75 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [isSavingKeys, setIsSavingKeys] = useState(false);
   const [hasValidatedKey, setHasValidatedKey] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Hydrate settings from DB (PostgreSQL via Prisma) on mount
+  useEffect(() => {
+    fetch("/api/settings")
+      .then(res => res.json())
+      .then(data => {
+        if (data.geminiKey !== undefined) setGeminiKey(data.geminiKey);
+        if (data.playwrightUrl !== undefined) setPlaywrightUrl(data.playwrightUrl);
+        if (data.hasValidated !== undefined) setHasValidatedKey(data.hasValidated);
+      })
+      .catch(() => console.warn("[Settings] Failed to fetch settings from PostgreSQL."));
+  }, []);
 
   const handleSaveKeys = () => {
+    const currentKey = geminiKey;
+    const currentUrl = playwrightUrl;
+    const isValid = currentKey.trim().length > 10;
+
     setIsSavingKeys(true);
-    setTimeout(() => {
-      setIsSavingKeys(false);
-      setHasValidatedKey(geminiKey.trim().length > 10);
-    }, 1200);
+
+    // Save to PostgreSQL via Next.js API route (Vercel serverless)
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        geminiKey: currentKey,
+        playwrightUrl: currentUrl,
+        hasValidated: isValid,
+      }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          setToast({ message: data.error, type: "error" });
+        } else {
+          setToast({ message: "Configuration saved and encrypted successfully!", type: "success" });
+        }
+      })
+      .catch(() => {
+        setToast({ message: "Failed to save configuration.", type: "error" });
+      })
+      .finally(() => {
+        setIsSavingKeys(false);
+        setHasValidatedKey(isValid);
+      });
   };
 
-  // Sync state with parent props user database
+  // Hydrate SaaS users from PostgreSQL DB if user is admin
   useEffect(() => {
-    if (propsSaasUsers && propsSaasUsers.length > 0) {
-      setSaasUsers(propsSaasUsers);
+    if (safeUser.role === "admin") {
+      fetch("/api/users")
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setSaasUsers(data);
+          }
+        })
+        .catch(err => console.error("Failed to load SaaS users from PostgreSQL:", err));
     }
-  }, [propsSaasUsers]);
+  }, [safeUser]);
 
   useEffect(() => {
     setLogs(["[System] Cloud session initialized.", `[User] Logged in as ${safeUser.name} (${safeUser.role.toUpperCase()})`, "[System] Workspace cleared. Waiting for search entry..."]);
@@ -212,11 +270,126 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
     };
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      const urls: string[] = [];
+
+      try {
+        if (file.name.endsWith(".json")) {
+          const parsed = JSON.parse(content);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(item => {
+              if (typeof item === "string" && item.startsWith("http")) {
+                urls.push(item);
+              } else if (typeof item === "object" && item !== null) {
+                const possibleUrl = item.url || item.website || item.link;
+                if (possibleUrl && possibleUrl.toString().startsWith("http")) {
+                  urls.push(possibleUrl.toString());
+                }
+              }
+            });
+          } else if (typeof parsed === "object" && parsed !== null) {
+            Object.values(parsed).forEach(val => {
+              if (typeof val === "string" && val.startsWith("http")) {
+                urls.push(val);
+              }
+            });
+          }
+        } else {
+          const lines = content.split(/\r?\n/);
+          lines.forEach(line => {
+            const match = line.match(/https?:\/\/[^\s,"]+/g);
+            if (match) {
+              match.forEach(url => urls.push(url));
+            }
+          });
+        }
+
+        const uniqueUrls = Array.from(new Set(urls));
+        if (uniqueUrls.length === 0) {
+          setToast({ message: "No valid website URLs starting with http/https found in file.", type: "error" });
+        } else {
+          setUploadedUrls(uniqueUrls);
+          setToast({ message: `Successfully loaded ${uniqueUrls.length} website URLs!`, type: "success" });
+          addLog(`[System] File loaded. Parsed ${uniqueUrls.length} unique website URLs.`);
+        }
+      } catch (err) {
+        setToast({ message: "Error parsing uploaded file. Please verify CSV or JSON format.", type: "error" });
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const startBulkScraping = async () => {
+    if (uploadedUrls.length === 0) return;
+
+    setScrapedData([]);
+    setLogs([]);
+    setScrapingStatus("discovery");
+    setActiveStep(1);
+    setCurrentUrlIndex(0);
+
+    addLog(`[Pipeline] Initiating bulk website scraping pipeline for ${uploadedUrls.length} target sites...`);
+
+    for (let i = 0; i < uploadedUrls.length; i++) {
+      const url = uploadedUrls[i];
+      setCurrentUrlIndex(i);
+      addLog(`[Pipeline] [${i + 1}/${uploadedUrls.length}] Launching agent target -> ${url}`);
+
+      await new Promise<void>((resolve) => {
+        const eventSourceUrl = `/api/scrape/stream?query=${encodeURIComponent("Website Extraction")}&url=${encodeURIComponent(url)}`;
+        const eventSource = new EventSource(eventSourceUrl);
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === "status") {
+              setScrapingStatus(data.status as any);
+              setActiveStep(data.step);
+            } else if (data.type === "log") {
+              addLog(`[Target ${i + 1}] ${data.message}`);
+            } else if (data.type === "data") {
+              const newRecords = data.records || [];
+              setScrapedData(prev => {
+                const startingId = prev.length + 1;
+                const mappedNew = newRecords.map((rec: any, idx: number) => ({
+                  ...rec,
+                  id: String(startingId + idx)
+                }));
+                return [...prev, ...mappedNew];
+              });
+            }
+          } catch (err) {
+            console.error("Error parsing bulk stream event:", err);
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource.close();
+          addLog(`[Pipeline] [${i + 1}/${uploadedUrls.length}] Finished scraping site.`);
+          resolve();
+        };
+      });
+    }
+
+    setScrapingStatus("completed");
+    setActiveStep(3);
+    setCurrentUrlIndex(null);
+    addLog("[Pipeline] 🎉 Bulk extraction run finished! You can now select and export all parsed records.");
+  };
+
   const handleClear = () => {
     setScrapedData([]);
+    setSelectedRecordIds([]);
     setLogs(["[System] Workspace cleared. Waiting for search entry..."]);
     setScrapingStatus("idle");
     setActiveStep(0);
+    setCurrentUrlIndex(null);
   };
 
   const handleDownloadCSV = () => {
@@ -282,33 +455,50 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
   };
 
   /**
-   * Admin: Toggles active status of SaaS accounts in the grid.
+   * Admin: Toggles active status of SaaS accounts in the PostgreSQL database.
    */
   const toggleUserStatus = (userId: string) => {
-    const updated = saasUsers.map(u => {
-      if (u.id === userId) {
-        return { ...u, status: u.status === "Active" ? ("Suspended" as const) : ("Active" as const) };
-      }
-      return u;
-    });
-    setSaasUsers(updated);
-    if (onUpdateUsers) onUpdateUsers(updated);
+    fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "toggle_status", userId }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setSaasUsers(prev =>
+            prev.map(u => (u.id === userId ? { ...u, status: u.status === "Active" ? "Suspended" : "Active" } : u))
+          );
+        }
+      })
+      .catch(err => console.error("Toggle user status failed:", err));
   };
 
   /**
-   * Admin: Cycles user plan through SaaS tiers.
+   * Admin: Cycles user plan through SaaS tiers in the PostgreSQL database.
    */
   const cycleUserPlan = (userId: string) => {
-    const plans: Array<"Basic" | "Pro" | "Enterprise"> = ["Basic", "Pro", "Enterprise"];
-    const updated = saasUsers.map(u => {
-      if (u.id === userId) {
-        const nextIndex = (plans.indexOf(u.plan) + 1) % plans.length;
-        return { ...u, plan: plans[nextIndex] };
-      }
-      return u;
-    });
-    setSaasUsers(updated);
-    if (onUpdateUsers) onUpdateUsers(updated);
+    fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cycle_plan", userId }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          const plans = ["Basic", "Pro", "Enterprise"];
+          setSaasUsers(prev =>
+            prev.map(u => {
+              if (u.id === userId) {
+                const nextIndex = (plans.indexOf(u.plan) + 1) % plans.length;
+                return { ...u, plan: plans[nextIndex] as any };
+              }
+              return u;
+            })
+          );
+        }
+      })
+      .catch(err => console.error("Cycle user plan failed:", err));
   };
 
   return (
@@ -379,46 +569,125 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
             </header>
 
             {/* Full Width Main Input Card */}
-            <div className="p-6 bg-card border border-primary/30 shadow-md shadow-primary/5 rounded-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-6 transition-all hover:border-primary/50 relative overflow-hidden group">
+            <div className="p-6 bg-card border border-primary/30 shadow-md shadow-primary/5 rounded-2xl flex flex-col gap-6 transition-all hover:border-primary/50 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-primary/10 transition-colors pointer-events-none" />
               
-              <div className="flex-1 flex flex-col gap-2 relative z-10">
-                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                  <Search className="h-4.5 w-4.5 text-primary" />
-                  Extraction Parameters
-                </h3>
-                <div className="flex flex-col gap-1.5 relative mt-1">
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
-                    className="w-full px-4 py-3 bg-background/50 border border-border rounded-xl text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all shadow-inner font-medium"
-                    placeholder="e.g. Cement Suppliers in Mumbai..."
-                  />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
-                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-secondary/80 backdrop-blur-sm px-2 py-1 rounded-md border border-border/50">Discovery Query</span>
-                  </div>
-                </div>
+              {/* Input Mode Toggle Bar */}
+              <div className="flex border-b border-border/40 gap-6 select-none relative z-10">
+                <button
+                  onClick={() => setActiveInputTab("search")}
+                  disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
+                  className={`pb-2.5 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer ${
+                    activeInputTab === "search" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Search Query Discovery
+                </button>
+                <button
+                  onClick={() => setActiveInputTab("upload")}
+                  disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
+                  className={`pb-2.5 text-xs font-bold uppercase tracking-wider transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+                    activeInputTab === "upload" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                  Bulk URL Scraping (CSV / JSON)
+                </button>
               </div>
 
-              <div className="flex items-center gap-3 lg:mt-7 shrink-0 relative z-10">
-                <button
-                  onClick={handleClear}
-                  disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
-                  className="flex items-center justify-center gap-2 px-5 py-3 border border-border bg-background/50 text-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 text-xs font-bold rounded-xl disabled:opacity-50 active:scale-95 transition-all"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Reset
-                </button>
-                <button
-                  onClick={handleStartScraping}
-                  disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
-                  className="flex items-center justify-center gap-2 px-8 py-3 bg-primary text-primary-foreground text-sm font-extrabold rounded-xl hover:opacity-90 disabled:opacity-50 active:scale-95 transition-all shadow-md hover:shadow-lg hover:shadow-primary/20"
-                >
-                  <Play className="h-4.5 w-4.5 fill-current" />
-                  Launch Agent
-                </button>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+                <div className="flex-1 flex flex-col gap-2">
+                  {activeInputTab === "search" ? (
+                    <>
+                      <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                        <Search className="h-4.5 w-4.5 text-primary" />
+                        Extraction Parameters
+                      </h3>
+                      <div className="flex flex-col gap-1.5 relative mt-1">
+                        <input
+                          type="text"
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
+                          className="w-full px-4 py-3 bg-background/50 border border-border rounded-xl text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all shadow-inner font-medium"
+                          placeholder="e.g. Digital Marketer in California..."
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+                           <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-secondary/80 backdrop-blur-sm px-2 py-1 rounded-md border border-border/50">Discovery Query</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                        <Globe className="h-4.5 w-4.5 text-primary" />
+                        Target URL Direct List
+                      </h3>
+                      <div className="flex flex-col sm:flex-row items-center gap-4 mt-1">
+                        <label className="flex-1 w-full flex flex-col items-center justify-center border-2 border-dashed border-border hover:border-primary/45 bg-background/40 hover:bg-primary/[0.01] rounded-xl px-4 py-5 cursor-pointer transition-all select-none group/upload">
+                          <Download className="h-6 w-6 text-muted-foreground group-hover/upload:text-primary transition-colors transform rotate-180 mb-2" />
+                          <span className="text-xs font-bold text-foreground group-hover/upload:text-primary transition-colors">Choose target website list file</span>
+                          <span className="text-[9px] text-muted-foreground mt-0.5">Supports clean CSV or JSON URL nodes</span>
+                          <input
+                            type="file"
+                            accept=".csv,.json"
+                            onChange={handleFileUpload}
+                            disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
+                            className="hidden"
+                          />
+                        </label>
+
+                        {uploadedUrls.length > 0 && (
+                          <div className="flex-1 w-full bg-secondary/35 border border-border/60 rounded-xl p-3.5 flex flex-col gap-2 max-h-[96px] overflow-y-auto">
+                            <span className="text-[10px] font-extrabold text-foreground uppercase tracking-wider">Loaded target websites ({uploadedUrls.length})</span>
+                            <div className="flex flex-col gap-1 pr-1 font-mono text-[9px] text-muted-foreground">
+                              {uploadedUrls.map((url, i) => {
+                                const isActive = currentUrlIndex === i;
+                                const isDone = (currentUrlIndex !== null && i < currentUrlIndex) || (currentUrlIndex === null && scrapingStatus === "completed");
+                                
+                                return (
+                                  <div key={i} className={`truncate flex items-center gap-1.5 ${isActive ? "text-red-500 font-extrabold" : isDone ? "text-emerald-500 font-semibold" : ""}`}>
+                                    <span className={`h-1.5 w-1.5 rounded-full ${
+                                      isActive ? "bg-red-500 animate-pulse ring-2 ring-red-500/20" : 
+                                      isDone ? "bg-emerald-500" : 
+                                      "bg-muted-foreground/35"
+                                    }`} />
+                                    {url}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 lg:mt-7 shrink-0">
+                  <button
+                    onClick={() => {
+                      handleClear();
+                      setUploadedUrls([]);
+                    }}
+                    disabled={scrapingStatus !== "idle" && scrapingStatus !== "completed"}
+                    className="flex items-center justify-center gap-2 px-5 py-3 border border-border bg-background/50 text-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 text-xs font-bold rounded-xl disabled:opacity-50 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Reset
+                  </button>
+                  <button
+                    onClick={activeInputTab === "search" ? handleStartScraping : startBulkScraping}
+                    disabled={
+                      (scrapingStatus !== "idle" && scrapingStatus !== "completed") ||
+                      (activeInputTab === "search" ? !searchTerm.trim() : uploadedUrls.length === 0)
+                    }
+                    className="flex items-center justify-center gap-2 px-8 py-3 bg-primary text-primary-foreground text-sm font-extrabold rounded-xl hover:opacity-90 disabled:opacity-50 active:scale-95 transition-all shadow-md hover:shadow-lg hover:shadow-primary/20 cursor-pointer"
+                  >
+                    <Play className="h-4.5 w-4.5 fill-current" />
+                    {activeInputTab === "search" ? "Launch Agent" : "Scrape Target List"}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -586,6 +855,21 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {scrapedData.length > 0 && (
+                    <div className="pt-4 border-t border-border/80 flex items-center justify-between gap-4 mt-2 shrink-0 select-none">
+                      <div className="text-[10px] text-muted-foreground font-semibold">
+                        Ready to export <span className="text-primary font-bold">{selectedRecordIds.length}</span> selected {selectedRecordIds.length === 1 ? "record" : "records"}.
+                      </div>
+                      <button
+                        onClick={handleDownloadCSV}
+                        className="flex items-center gap-2 px-6 py-2.5 bg-primary text-primary-foreground text-xs font-bold rounded-xl active:scale-95 transition-all shadow-md hover:shadow-lg hover:shadow-primary/20 cursor-pointer"
+                      >
+                        <Download className="h-4 w-4" />
+                        Export Scraped Data (CSV)
+                      </button>
                     </div>
                   )}
                 </div>
@@ -871,6 +1155,273 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
           </div>
         )}
 
+        {/* TAB 4 (Non-Admin): User Subscription & Personal Billing Metrics */}
+        {activeTab === "billing" && safeUser.role !== "admin" && (
+          <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0 pb-12">
+            <header className="flex flex-col gap-1.5 border-b border-border/60 pb-4">
+              <h2 className="font-heading text-xl font-bold text-foreground flex items-center gap-2 uppercase tracking-wide">
+                <CreditCard className="h-5 w-5 text-primary" />
+                Subscription & Personal Billing
+              </h2>
+              <p className="text-xs text-muted-foreground">Manage your active subscription plan, billing details, and view payment history.</p>
+            </header>
+
+            {/* Subscription Billing Settings Switcher Card */}
+            <div className="flex items-center justify-between bg-card border border-border p-5 rounded-2xl shadow-xs">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-bold text-foreground">Billing Interval</span>
+                <span className="text-[10px] text-muted-foreground">Select how frequently you would like to be billed. Choose Yearly to get 2 months free!</span>
+              </div>
+              <div className="flex items-center gap-1.5 p-1 bg-secondary/60 rounded-xl border border-border shrink-0">
+                <button
+                  onClick={() => {
+                    setBillingCycle("monthly");
+                    setToast({ message: "Billing cycle changed to Monthly", type: "success" });
+                  }}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${billingCycle === "monthly" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Monthly
+                </button>
+                <button
+                  onClick={() => {
+                    setBillingCycle("yearly");
+                    setToast({ message: "Billing cycle changed to Yearly (2 Months Free!)", type: "success" });
+                  }}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${billingCycle === "yearly" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Yearly <span className="text-[9px] px-1 bg-emerald-500/20 text-emerald-400 rounded-sm font-extrabold ml-1">Save 17%</span>
+                </button>
+              </div>
+            </div>
+
+            {/* User Subscription Metric Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              
+              {/* Card 1: Active Plan */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-3">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Active Subscription</span>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-3xl font-heading font-extrabold text-foreground tracking-tight">{safeUser.plan} Plan</h3>
+                  <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-extrabold rounded-full flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                    Active
+                  </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground font-semibold">
+                  Cost: {
+                    safeUser.plan === "Enterprise"
+                      ? (billingCycle === "yearly" ? "$2,490 / year" : "$249 / month")
+                      : safeUser.plan === "Pro"
+                      ? (billingCycle === "yearly" ? "$790 / year" : "$79 / month")
+                      : (billingCycle === "yearly" ? "$290 / year" : "$29 / month")
+                  }
+                </div>
+              </div>
+
+              {/* Card 2: Billing Status */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-3">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Next Billing Date</span>
+                <h3 className="text-3xl font-heading font-extrabold text-foreground tracking-tight">
+                  {billingCycle === "yearly" ? "May 17, 2027" : "June 17, 2026"}
+                </h3>
+                <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
+                  Payment Method: <span className="text-foreground font-bold">Visa ending in •••• 4242</span>
+                </div>
+              </div>
+
+              {/* Card 3: Scraping Limits */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-3">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Scraping Capability Allocated</span>
+                <h3 className="text-3xl font-heading font-extrabold text-foreground tracking-tight">
+                  {safeUser.plan === "Enterprise" ? "Unlimited" : safeUser.plan === "Pro" ? "10,000" : "1,000"}
+                </h3>
+                <div className="text-[10px] text-muted-foreground font-semibold">
+                  Concurrency Cap: {safeUser.plan === "Enterprise" ? "100" : safeUser.plan === "Pro" ? "20" : "5"} active worker nodes
+                </div>
+              </div>
+
+            </div>
+
+            {/* Plans Breakdown / Comparison Cards */}
+            <div className="flex flex-col gap-4">
+              <h3 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Available Subscription Plans</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* Plan 1: Basic */}
+                <div className={`p-6 bg-card border rounded-2xl shadow-xs flex flex-col gap-4 transition-all relative ${safeUser.plan === "Basic" ? "border-2 border-primary" : "border-border"}`}>
+                  {safeUser.plan === "Basic" && (
+                    <span className="absolute -top-3 left-6 px-3 py-1 bg-primary text-primary-foreground text-[9px] font-extrabold uppercase rounded-full tracking-wider">Your Active Plan</span>
+                  )}
+                  <h4 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Basic Tier</h4>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-extrabold font-heading text-foreground">
+                      {billingCycle === "yearly" ? "$290" : "$29"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">/ {billingCycle === "yearly" ? "year" : "month"}</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-500 font-bold -mt-3">
+                    {billingCycle === "yearly" ? "Equivalent to $24.16/mo (Save $58)" : "Billed monthly"}
+                  </span>
+                  <ul className="text-xs text-muted-foreground flex flex-col gap-2.5 my-4">
+                    <li className="flex items-center gap-2">✔ 1,000 monthly scrapes</li>
+                    <li className="flex items-center gap-2">✔ 5 concurrent headless workers</li>
+                    <li className="flex items-center gap-2">✔ Standard DOM parsing</li>
+                    <li className="flex items-center gap-2">✔ Email Support</li>
+                  </ul>
+                  <button 
+                    disabled={safeUser.plan === "Basic"}
+                    onClick={() => setToast({ message: "Subscription plan changes must be approved by your primary administrator.", type: "error" })}
+                    className={`w-full py-2 text-xs font-bold rounded-xl active:scale-95 transition-all ${safeUser.plan === "Basic" ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-primary text-primary-foreground hover:opacity-95"}`}
+                  >
+                    {safeUser.plan === "Basic" ? "Currently Active" : "Downgrade to Basic"}
+                  </button>
+                </div>
+
+                {/* Plan 2: Pro */}
+                <div className={`p-6 bg-card border rounded-2xl shadow-xs flex flex-col gap-4 transition-all relative ${safeUser.plan === "Pro" ? "border-2 border-primary animate-pulse-slow" : "border-border"}`}>
+                  {safeUser.plan === "Pro" && (
+                    <span className="absolute -top-3 left-6 px-3 py-1 bg-primary text-primary-foreground text-[9px] font-extrabold uppercase rounded-full tracking-wider">Your Active Plan</span>
+                  )}
+                  <h4 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Pro Tier</h4>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-extrabold font-heading text-foreground">
+                      {billingCycle === "yearly" ? "$790" : "$79"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">/ {billingCycle === "yearly" ? "year" : "month"}</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-500 font-bold -mt-3">
+                    {billingCycle === "yearly" ? "Equivalent to $65.83/mo (Save $158)" : "Billed monthly"}
+                  </span>
+                  <ul className="text-xs text-muted-foreground flex flex-col gap-2.5 my-4">
+                    <li className="flex items-center gap-2">✔ 10,000 monthly scrapes</li>
+                    <li className="flex items-center gap-2">✔ 20 concurrent headless workers</li>
+                    <li className="flex items-center gap-2">✔ Advanced dynamic JS parsing</li>
+                    <li className="flex items-center gap-2">✔ Priority Support</li>
+                  </ul>
+                  <button 
+                    disabled={safeUser.plan === "Pro"}
+                    onClick={() => setToast({ message: "Subscription plan changes must be approved by your primary administrator.", type: "error" })}
+                    className={`w-full py-2 text-xs font-bold rounded-xl active:scale-95 transition-all ${safeUser.plan === "Pro" ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-primary text-primary-foreground hover:opacity-95"}`}
+                  >
+                    {safeUser.plan === "Pro" ? "Currently Active" : safeUser.plan === "Enterprise" ? "Downgrade to Pro" : "Upgrade to Pro"}
+                  </button>
+                </div>
+
+                {/* Plan 3: Enterprise */}
+                <div className={`p-6 bg-card border rounded-2xl shadow-xs flex flex-col gap-4 transition-all relative ${safeUser.plan === "Enterprise" ? "border-2 border-primary" : "border-border"}`}>
+                  {safeUser.plan === "Enterprise" && (
+                    <span className="absolute -top-3 left-6 px-3 py-1 bg-primary text-primary-foreground text-[9px] font-extrabold uppercase rounded-full tracking-wider">Your Active Plan</span>
+                  )}
+                  <h4 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Enterprise Tier</h4>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-extrabold font-heading text-foreground">
+                      {billingCycle === "yearly" ? "$2,490" : "$249"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">/ {billingCycle === "yearly" ? "year" : "month"}</span>
+                  </div>
+                  <span className="text-[10px] text-emerald-500 font-bold -mt-3">
+                    {billingCycle === "yearly" ? "Equivalent to $207.50/mo (Save $498)" : "Billed monthly"}
+                  </span>
+                  <ul className="text-xs text-muted-foreground flex flex-col gap-2.5 my-4">
+                    <li className="flex items-center gap-2">✔ Unlimited monthly scrapes</li>
+                    <li className="flex items-center gap-2">✔ 100 concurrent headless workers</li>
+                    <li className="flex items-center gap-2">✔ Custom Gemini extraction models</li>
+                    <li className="flex items-center gap-2">✔ 24/7 Dedicated Support</li>
+                  </ul>
+                  <button 
+                    disabled={safeUser.plan === "Enterprise"}
+                    onClick={() => setToast({ message: "Subscription plan changes must be approved by your primary administrator.", type: "error" })}
+                    className={`w-full py-2 text-xs font-bold rounded-xl active:scale-95 transition-all ${safeUser.plan === "Enterprise" ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-primary text-primary-foreground hover:opacity-95"}`}
+                  >
+                    {safeUser.plan === "Enterprise" ? "Currently Active" : "Upgrade to Enterprise"}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Invoice Payment History */}
+            <div className="flex flex-col gap-4">
+              <h3 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Invoice Payment History</h3>
+              <div className="w-full overflow-x-auto border border-border bg-card rounded-2xl">
+                <table className="w-full text-left border-collapse min-w-[600px]">
+                  <thead>
+                    <tr className="border-b border-border/80 text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-secondary/20">
+                      <th className="px-6 py-4">Invoice ID</th>
+                      <th className="px-6 py-4">Billing Period</th>
+                      <th className="px-6 py-4">Amount Paid</th>
+                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4 text-right">Receipt</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-xs text-foreground divide-y divide-border/60">
+                    {billingCycle === "yearly" ? (
+                      <>
+                        <tr>
+                          <td className="px-6 py-4 font-mono font-bold">INV-2026-YEAR</td>
+                          <td className="px-6 py-4 text-muted-foreground">May 17, 2026 - May 17, 2027</td>
+                          <td className="px-6 py-4 font-bold">
+                            {safeUser.plan === "Enterprise" ? "$2,490.00" : safeUser.plan === "Pro" ? "$790.00" : "$290.00"}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 rounded-md font-bold text-[10px]">Paid</span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button onClick={() => setToast({ message: "Generating PDF receipt...", type: "success" })} className="text-primary hover:underline font-bold">Download PDF</button>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-6 py-4 font-mono font-bold">INV-2025-YEAR</td>
+                          <td className="px-6 py-4 text-muted-foreground">May 17, 2025 - May 17, 2026</td>
+                          <td className="px-6 py-4 font-bold">
+                            {safeUser.plan === "Enterprise" ? "$2,490.00" : safeUser.plan === "Pro" ? "$790.00" : "$290.00"}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 rounded-md font-bold text-[10px]">Paid</span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button onClick={() => setToast({ message: "Generating PDF receipt...", type: "success" })} className="text-primary hover:underline font-bold">Download PDF</button>
+                          </td>
+                        </tr>
+                      </>
+                    ) : (
+                      <>
+                        <tr>
+                          <td className="px-6 py-4 font-mono font-bold">INV-2026-003</td>
+                          <td className="px-6 py-4 text-muted-foreground">May 17, 2026 - Jun 17, 2026</td>
+                          <td className="px-6 py-4 font-bold">
+                            {safeUser.plan === "Enterprise" ? "$249.00" : safeUser.plan === "Pro" ? "$79.00" : "$29.00"}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 rounded-md font-bold text-[10px]">Paid</span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button onClick={() => setToast({ message: "Generating PDF receipt...", type: "success" })} className="text-primary hover:underline font-bold">Download PDF</button>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-6 py-4 font-mono font-bold">INV-2026-002</td>
+                          <td className="px-6 py-4 text-muted-foreground">Apr 17, 2026 - May 17, 2026</td>
+                          <td className="px-6 py-4 font-bold">
+                            {safeUser.plan === "Enterprise" ? "$249.00" : safeUser.plan === "Pro" ? "$79.00" : "$29.00"}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 rounded-md font-bold text-[10px]">Paid</span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button onClick={() => setToast({ message: "Generating PDF receipt...", type: "success" })} className="text-primary hover:underline font-bold">Download PDF</button>
+                          </td>
+                        </tr>
+                      </>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
+
         {/* TAB 5: Platform Settings Panel (Admin Only) */}
         {activeTab === "settings" && safeUser.role === "admin" && (
           <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0 pb-12">
@@ -995,6 +1546,23 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
 
         </div>
       </main>
+
+      {/* Premium Glassmorphic Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-card/85 backdrop-blur-md border border-border shadow-lg animate-slide-in-right transition-all duration-300">
+          {toast.type === "success" ? (
+            <div className="p-1.5 bg-emerald-500/10 text-emerald-500 rounded-lg">
+              <CheckCircle className="h-4 w-4" />
+            </div>
+          ) : (
+            <div className="p-1.5 bg-destructive/10 text-destructive rounded-lg">
+              <AlertCircle className="h-4 w-4" />
+            </div>
+          )}
+          <span className="text-xs font-semibold text-foreground pr-2">{toast.message}</span>
+        </div>
+      )}
+
     </div>
   );
 }
