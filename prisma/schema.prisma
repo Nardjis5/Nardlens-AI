@@ -14,7 +14,7 @@ model Settings {
   id            String   @id @default(cuid())
   userId        String   @unique
   geminiKey     String   @default("")
-  playwrightUrl String   @default("wss://playwright.structora.ai/ws")
+  playwrightUrl String   @default("wss://playwright.nardlens.ai/ws")
   hasValidated  Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -31,9 +31,15 @@ model User {
   status     Status   @default(Active)
   role       Role     @default(user)
   password   String   // bcrypt hashed
+  billingCycle BillingCycle @default(Monthly)
   joinedDate DateTime @default(now())
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+enum BillingCycle {
+  Monthly
+  Yearly
 }
 
 enum Plan {

@@ -156,11 +156,11 @@ export function AuthCard({ onSuccess, defaultMode = "login" }: AuthCardProps) {
           <Shield className="h-8 w-8 animate-bounce" />
         </div>
         <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          {mode === "login" ? "Sign In to Structora" : "Create Structora Account"}
+          {mode === "login" ? "NardLens" : "Create NardLens Account"}
         </h2>
         <p className="text-sm text-muted-foreground mt-1 text-center">
           {mode === "login"
-            ? "Enter your credentials to access your scraping console"
+            ? "AI Supplier Intelligence Agent"
             : "Register to manage your scraping pipelines"}
         </p>
       </div>
@@ -224,7 +224,7 @@ export function AuthCard({ onSuccess, defaultMode = "login" }: AuthCardProps) {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@structora.ai"
+              placeholder="name@nardlens.ai"
               className="w-full pl-10 pr-4 py-2 bg-background border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
             />
           </div>

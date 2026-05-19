@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-const ADMIN_USER_ID = "admin@structora.ai"; // Fixed key for admin settings row
+const ADMIN_USER_ID = "admin@nardlens.ai"; // Fixed key for admin settings row
 
 /**
  * GET /api/settings
@@ -23,7 +23,7 @@ export async function GET() {
     if (!settings) {
       return NextResponse.json({
         geminiKey: "",
-        playwrightUrl: "wss://playwright.structora.ai/ws",
+        playwrightUrl: "wss://playwright.nardlens.ai/ws",
         hasValidated: false,
       });
     }
@@ -52,13 +52,13 @@ export async function POST(req: NextRequest) {
       where: { userId: ADMIN_USER_ID },
       update: {
         geminiKey: geminiKey ?? "",
-        playwrightUrl: playwrightUrl ?? "wss://playwright.structora.ai/ws",
+        playwrightUrl: playwrightUrl ?? "wss://playwright.nardlens.ai/ws",
         hasValidated: hasValidated ?? false,
       },
       create: {
         userId: ADMIN_USER_ID,
         geminiKey: geminiKey ?? "",
-        playwrightUrl: playwrightUrl ?? "wss://playwright.structora.ai/ws",
+        playwrightUrl: playwrightUrl ?? "wss://playwright.nardlens.ai/ws",
         hasValidated: hasValidated ?? false,
       },
     });

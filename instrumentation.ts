@@ -16,14 +16,14 @@ export async function register() {
 
     const dbUrl = process.env.DATABASE_URL;
     if (!dbUrl) {
-      console.log("[Structora] No DATABASE_URL found. Skipping auto-provisioning.");
+      console.log("[NardLens] No DATABASE_URL found. Skipping auto-provisioning.");
       return;
     }
 
     // Parse DATABASE_URL
-    const match = dbUrl.match(/postgresql:\/\/([^:]+):([^@]+)@([^:/]+):?(\d+)?\/([^?]+)/);
+    const match = dbUrl.match(/postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:/]+):?(\d+)?\/([^?]+)/);
     if (!match) {
-      console.warn("[Structora] Invalid DATABASE_URL format.");
+      console.warn("[NardLens] Invalid DATABASE_URL format.");
       return;
     }
 
@@ -33,7 +33,7 @@ export async function register() {
     const port = match[4] || "5432";
     const targetDb = match[5].split("?")[0];
 
-    console.log(`[Structora] Checking database status for '${targetDb}'...`);
+    console.log(`[NardLens] Checking database status for '${targetDb}'...`);
 
     let dbExists = false;
 
@@ -45,9 +45,9 @@ export async function register() {
       await client.connect();
       await client.end();
       dbExists = true;
-      console.log(`[Structora] ✅ Database '${targetDb}' is already created and accessible.`);
+      console.log(`[NardLens] ✅ Database '${targetDb}' is already created and accessible.`);
     } catch (err) {
-      console.log(`[Structora] Database '${targetDb}' does not exist or is inaccessible. Attempting auto-creation...`);
+      console.log(`[NardLens] Database '${targetDb}' does not exist or is inaccessible. Attempting auto-creation...`);
     }
 
     // Step 2: If DB does not exist, connect to 'postgres' to create it
@@ -71,7 +71,7 @@ export async function register() {
           });
           await client.connect();
           adminClient = client;
-          console.log(`[Structora] Connected to 'postgres' database as superuser '${creds.user}'.`);
+          console.log(`[NardLens] Connected to 'postgres' database as superuser '${creds.user}'.`);
           break;
         } catch (e) {
           // Keep trying
@@ -80,7 +80,7 @@ export async function register() {
 
       if (!adminClient) {
         console.warn(
-          `[Structora] ⚠️  Could not connect to default 'postgres' database as superuser. Please manually create database '${targetDb}'.`
+          `[NardLens] ⚠️  Could not connect to default 'postgres' database as superuser. Please manually create database '${targetDb}'.`
         );
       } else {
         try {
@@ -88,7 +88,7 @@ export async function register() {
           const roleRes = await adminClient.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [targetUser]);
           if (roleRes.rowCount === 0) {
             await adminClient.query(`CREATE ROLE ${targetUser} WITH LOGIN PASSWORD '${targetPassword}' SUPERUSER`);
-            console.log(`[Structora] ✅ Created role '${targetUser}'.`);
+            console.log(`[NardLens] ✅ Created role '${targetUser}'.`);
           }
 
           // Check/Create Database
@@ -96,10 +96,10 @@ export async function register() {
           if (dbRes.rowCount === 0) {
             await adminClient.query(`CREATE DATABASE ${targetDb} OWNER ${targetUser}`);
             await adminClient.query(`GRANT ALL PRIVILEGES ON DATABASE ${targetDb} TO ${targetUser}`);
-            console.log(`[Structora] ✅ Created database '${targetDb}'.`);
+            console.log(`[NardLens] ✅ Created database '${targetDb}'.`);
           }
         } catch (creationErr: any) {
-          console.error("[Structora] ❌ Failed to auto-provision database/user:", creationErr.message);
+          console.error("[NardLens] ❌ Failed to auto-provision database/user:", creationErr.message);
         } finally {
           await adminClient.end();
         }
@@ -108,15 +108,15 @@ export async function register() {
 
     // Step 3: Run migrations and seed
     try {
-      console.log("[Structora] Syncing database schema with Prisma...");
+      console.log("[NardLens] Syncing database schema with Prisma...");
       execSync("npx prisma db push --accept-data-loss && npx prisma db seed", {
         stdio: "pipe",
         env: process.env,
       });
-      console.log("[Structora] ✅ Database schema is up to date and seeded.");
+      console.log("[NardLens] ✅ Database schema is up to date and seeded.");
     } catch (error: any) {
       console.warn(
-        "[Structora] ⚠️  Prisma setup failed:",
+        "[NardLens] ⚠️  Prisma setup failed:",
         error?.message?.split("\n")[0]
       );
     }

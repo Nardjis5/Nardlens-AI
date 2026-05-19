@@ -19,7 +19,7 @@ export default function RegisterPage() {
         <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-sm group-hover:opacity-90 transition-all">
           <Cpu className="h-5 w-5" />
         </div>
-        <span className="font-heading font-extrabold text-lg tracking-wider text-foreground">Structora <span className="text-primary font-medium">AI</span></span>
+        <span className="font-heading font-extrabold text-lg tracking-wider text-foreground">NardLens <span className="text-primary font-medium">AI</span></span>
       </Link>
       <div className="w-full max-w-md">
         <AuthCard 

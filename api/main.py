@@ -1,5 +1,5 @@
 """
-FastAPI Backend Entry Point for Structora AI
+FastAPI Backend Entry Point for NardLens AI
 This module initializes the FastAPI application, sets up necessary middleware (like CORS),
 and defines a streaming real-time scraping pipeline utilizing Playwright, BeautifulSoup,
 and Google Generative AI (Gemini) for automated web data harvesting.
@@ -242,14 +242,14 @@ async def lifespan(app: FastAPI):
     FastAPI lifespan handler. Runs auto database provisioning on startup
     before the application begins accepting requests.
     """
-    print("[Structora] Starting up — running database auto-setup...")
+    print("[NardLens] Starting up — running database auto-setup...")
     auto_setup_database()
-    print("[Structora] Startup complete. Ready to accept requests.")
+    print("[NardLens] Startup complete. Ready to accept requests.")
     yield  # Application runs here
-    print("[Structora] Shutting down.")
+    print("[NardLens] Shutting down.")
 
 # Initialize FastAPI instance
-app = FastAPI(title="Structora AI Backend", lifespan=lifespan)
+app = FastAPI(title="NardLens AI Backend", lifespan=lifespan)
 
 # Add CORS middleware to permit browser access from dynamic client routes
 app.add_middleware(
@@ -265,7 +265,7 @@ async def search_duckduckgo(playwright, query: str, playwright_url: Optional[str
     Leverages a headless Playwright Chromium instance to query DuckDuckGo and resolve
     initial target business directories or supplier links.
     """
-    if playwright_url and playwright_url.startswith(("ws://", "wss://")) and "playwright.structora.ai/ws" not in playwright_url:
+    if playwright_url and playwright_url.startswith(("ws://", "wss://")) and "playwright.nardlens.ai/ws" not in playwright_url:
         try:
             print(f"[Playwright] Connecting to remote WebSocket: {playwright_url}")
             browser = await playwright.chromium.connect_over_cdp(playwright_url)
@@ -313,7 +313,7 @@ async def crawl_target_site(playwright, url: str, playwright_url: Optional[str] 
     Crawls a target website in a headless browser, scrolling to trigger lazy loading
     and capturing the complete DOM structure.
     """
-    if playwright_url and playwright_url.startswith(("ws://", "wss://")) and "playwright.structora.ai/ws" not in playwright_url:
+    if playwright_url and playwright_url.startswith(("ws://", "wss://")) and "playwright.nardlens.ai/ws" not in playwright_url:
         try:
             print(f"[Playwright] Connecting to remote WebSocket: {playwright_url}")
             browser = await playwright.chromium.connect_over_cdp(playwright_url)
@@ -505,7 +505,7 @@ def extract_with_gemini(text: str, query: str, api_key: str) -> list[dict]:
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "message": "Structora API is running"}
+    return {"status": "ok", "message": "NardLens API is running"}
 
 @app.get("/api/scrape/stream")
 async def scrape_stream(query: str = Query(...), url: Optional[str] = Query(None)):

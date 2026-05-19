@@ -2,7 +2,7 @@
 
 /**
  * @file page.tsx
- * @description Root page controller for the Structora application. Manages client-side 
+ * @description Root page controller for the NardLens application. Manages client-side 
  * user authentication states, routes visitors between the public-facing landing and the 
  * secure scraping console, and handles the high-level layout. All methods and structural 
  * layout elements are thoroughly documented to fit high academic standards.
@@ -78,7 +78,7 @@ export default function Home() {
               <div className="h-9 w-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-sm">
                 <Cpu className="h-5 w-5 animate-pulse" />
               </div>
-              <span className="font-heading font-extrabold text-lg tracking-wider">Structora <span className="text-primary font-medium">AI</span></span>
+              <span className="font-heading font-extrabold text-lg tracking-wider">NardLens <span className="text-primary font-medium">AI</span></span>
             </div>
 
             {/* Action buttons */}
@@ -96,7 +96,7 @@ export default function Home() {
       )}
 
       {/* Main content body rendering logic */}
-      <main className="flex-1 flex flex-col justify-center">
+      <main className={`flex-1 flex flex-col ${session ? "min-h-0" : "justify-center"}`}>
         {session ? (
           // Secure application workspace console - takes full height and full width!
           <Suspense fallback={<div className="flex-1 flex items-center justify-center"><Cpu className="h-8 w-8 animate-pulse text-primary" /></div>}>
@@ -124,9 +124,9 @@ export default function Home() {
                 </h1>
                 
                 <p className="text-lg text-muted-foreground leading-relaxed">
-                  Structora discover websites, simulates human browsing behavior utilizing Playwright automation, 
-                  scrapes HTML structures, and translates raw textual contents into highly structured, exportable JSON 
-                  entities via Gemini's large language model capabilities.
+                  NardLens discovers suppliers, simulates human browsing behavior utilizing Playwright automation, 
+                  scrapes supplier data, and translates raw information into highly structured, exportable JSON 
+                  supplier intelligence via Gemini's large language model capabilities.
                 </p>
 
                 <div className="flex flex-wrap gap-4 pt-2">
@@ -229,7 +229,7 @@ export default function Home() {
       {/* Persistent Footer */}
       {!session && (
         <footer className="border-t border-border bg-card/30 py-8 text-center text-xs text-muted-foreground mt-auto">
-          <p>© {new Date().getFullYear()} Structora AI Scraper • Developed for Ph.D. Research Thesis. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} NardLens — AI Supplier Intelligence Agent. All rights reserved. - developed by Nardjis Mezerek</p>
         </footer>
       )}
 

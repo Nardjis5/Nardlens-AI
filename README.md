@@ -1,6 +1,6 @@
-# ⚡ Structora AI: Enterprise Web Scraping & AI Discovery Console
+# ⚡ NardLens AI: Enterprise Web Scraping & AI Discovery Console
 
-Structora AI is a state-of-the-art enterprise automated web scraping, indexing, and entity extraction pipeline. Combining a high-performance **Next.js App Router** frontend with a concurrent **FastAPI Python backend**, the application runs dynamic web discovery, crawler queues, and leverages **Google Gemini AI** to extract high-fidelity structured business intelligence datasets in real-time.
+NardLens AI is a state-of-the-art enterprise automated web scraping, indexing, and entity extraction pipeline. Combining a high-performance **Next.js App Router** frontend with a concurrent **FastAPI Python backend**, the application runs dynamic web discovery, crawler queues, and leverages **Google Gemini AI** to extract high-fidelity structured business intelligence datasets in real-time.
 
 ---
 
@@ -41,7 +41,7 @@ Follow these steps to launch the entire multi-service stack in your local develo
 Create a `.env` file in the root directory:
 ```bash
 # PostgreSQL Connection URL
-DATABASE_URL="postgresql://webnazar:secure_password@127.0.0.1:5432/structora_db"
+DATABASE_URL="postgresql://webnazar:secure_password@127.0.0.1:5432/nardlens_db"
 
 # Optional Defaults (Can also be managed directly in settings)
 GEMINI_API_KEY=""
@@ -51,11 +51,16 @@ PLAYWRIGHT_URL=""
 ---
 
 ### Step 2: Database Provisioning & Seeding
-Run the automated schema build script to initialize your PostgreSQL tables and seed admin credentials:
+Ensure you have run Prisma schema generator and migrations, then run the database seeding scripts to initialize your tables and seed admin credentials:
 ```bash
-# Make script executable and run
-chmod +x setup_db.sh
-./setup_db.sh
+# Push the schema to your PostgreSQL instance
+npx prisma db push
+
+# Seed the default administrator account (admin@webnazar.com / Admin@2025#)
+npx tsx seed_admin.ts
+
+# Seed dummy SaaS users of different billing plans and cycles for metrics testing
+npx tsx seed.ts
 ```
 
 ---
