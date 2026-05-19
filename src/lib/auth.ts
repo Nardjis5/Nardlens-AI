@@ -1,6 +1,6 @@
 /**
  * @file src/lib/auth.ts
- * @description JWT authentication helpers for Structora AI.
+ * @description JWT authentication helpers for NardLens AI.
  * Issues and verifies HTTP-only cookie tokens for stateless session management.
  * Cookies persist across browser restarts (no localStorage dependency).
  */
@@ -8,8 +8,8 @@
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 
-const JWT_SECRET = process.env.JWT_SECRET || "structora-secret-key-change-in-production";
-const COOKIE_NAME = "structora_token";
+const JWT_SECRET = process.env.JWT_SECRET || "nardlens-secret-key-change-in-production";
+const COOKIE_NAME = "nardlens_token";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 export interface SessionPayload {

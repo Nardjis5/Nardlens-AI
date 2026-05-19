@@ -18,8 +18,8 @@ const orbitron = Orbitron({
 });
 
 export const metadata: Metadata = {
-  title: "Structora AI - Automated Data Extraction Console",
-  description: "AI-Agent powered crawling, Playwright orchestration, and LLM text normalization.",
+  title: "NardLens - AI Supplier Intelligence Agent",
+  description: "NardLens: AI-powered supplier discovery, Playwright orchestration, and LLM-driven structured intelligence extraction.",
 };
 
 export default function RootLayout({

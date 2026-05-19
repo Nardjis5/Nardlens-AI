@@ -2,7 +2,7 @@
 
 /**
  * @file dashboard-mock.tsx
- * @description The unified console workspace for Structora SaaS. Wraps the sidebar navigation
+ * @description The unified console workspace for NardLens SaaS. Wraps the sidebar navigation
  * and renders role-based access panels. Admins can access 'User Access Control' and 
  * 'SaaS Billing Statistics', while standard users access 'Scraping Console' and 
  * 'Scraper Services' dashboards. Fully commented to academic Ph.D. standards.
@@ -43,6 +43,7 @@ interface SaaSUser {
   mobile: string;
   plan: "Basic" | "Pro" | "Enterprise";
   status: "Active" | "Suspended";
+  billingCycle: "Monthly" | "Yearly";
   joinedDate: string;
   password?: string;
 }
@@ -68,9 +69,17 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
   const pathname = usePathname();
   
   const tabParam = searchParams.get("tab") as SidebarTab | null;
-  const activeTab: SidebarTab = tabParam || "console";
+  
+  // Admin-only tabs — non-admins attempting URL access are silently redirected
+  const adminOnlyTabs: SidebarTab[] = ["users", "settings"];
+  const resolvedTab = tabParam || "console";
+  const activeTab: SidebarTab = (adminOnlyTabs.includes(resolvedTab) && safeUser.role !== "admin")
+    ? "console"
+    : resolvedTab;
 
   const setActiveTab = (tab: SidebarTab) => {
+    // Prevent non-admins from navigating to restricted tabs programmatically
+    if (adminOnlyTabs.includes(tab) && safeUser.role !== "admin") return;
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
     router.push(`${pathname}?${params.toString()}`);
@@ -88,6 +97,7 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
   const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
   const [currentUrlIndex, setCurrentUrlIndex] = useState<number | null>(null);
   const [activeInputTab, setActiveInputTab] = useState<"search" | "upload">("search");
+  const [resultLimit, setResultLimit] = useState(10);
 
   // State for record selections
   const [selectedRecordIds, setSelectedRecordIds] = useState<string[]>([]);
@@ -143,10 +153,18 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
 
   // SaaS Mock Admin Database States
   const [saasUsers, setSaasUsers] = useState<SaaSUser[]>([]);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [activeDropdown, setActiveDropdown] = useState<{ userId: string; type: "plan" | "action" | "billingCycle" } | null>(null);
+
+  const filteredUsers = saasUsers.filter(u => 
+    u.name.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
+    u.email.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+    (u.username && u.username.toLowerCase().includes(userSearchTerm.toLowerCase()))
+  );
 
   // API Credentials State (Platform Settings)
   const [geminiKey, setGeminiKey] = useState("");
-  const [playwrightUrl, setPlaywrightUrl] = useState("wss://playwright.structora.ai/ws");
+  const [playwrightUrl, setPlaywrightUrl] = useState("wss://playwright.nardlens.ai/ws");
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [isSavingKeys, setIsSavingKeys] = useState(false);
   const [hasValidatedKey, setHasValidatedKey] = useState(false);
@@ -245,7 +263,7 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
     setActiveStep(1);
 
     // Initialize Native browser EventSource connecting to the FastAPI proxy route
-    const eventSourceUrl = `/api/scrape/stream?query=${encodeURIComponent(searchTerm)}`;
+    const eventSourceUrl = `/api/scrape/stream?query=${encodeURIComponent(searchTerm)}&limit=${resultLimit}`;
     const eventSource = new EventSource(eventSourceUrl);
 
     eventSource.onmessage = (event) => {
@@ -454,52 +472,83 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
     document.body.removeChild(link);
   };
 
-  /**
-   * Admin: Toggles active status of SaaS accounts in the PostgreSQL database.
-   */
-  const toggleUserStatus = (userId: string) => {
+  const setUserStatus = (userId: string, status: "Active" | "Suspended") => {
     fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "toggle_status", userId }),
+      body: JSON.stringify({ action: "set_status", userId, status }),
     })
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          setSaasUsers(prev =>
-            prev.map(u => (u.id === userId ? { ...u, status: u.status === "Active" ? "Suspended" : "Active" } : u))
-          );
+          setSaasUsers(prev => prev.map(u => (u.id === userId ? { ...u, status } : u)));
+          setToast({ message: `User status updated to ${status}`, type: "success" });
+        } else {
+          setToast({ message: data.error || "Failed to update user status", type: "error" });
         }
       })
-      .catch(err => console.error("Toggle user status failed:", err));
+      .catch(err => {
+        console.error("Set user status failed:", err);
+        setToast({ message: "Network error while updating status", type: "error" });
+      })
+      .finally(() => setActiveDropdown(null));
   };
 
-  /**
-   * Admin: Cycles user plan through SaaS tiers in the PostgreSQL database.
-   */
-  const cycleUserPlan = (userId: string) => {
+  const setUserPlan = (userId: string, plan: "Basic" | "Pro" | "Enterprise") => {
     fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "cycle_plan", userId }),
+      body: JSON.stringify({ action: "set_plan", userId, plan }),
     })
       .then(res => res.json())
       .then(data => {
         if (data.success) {
-          const plans = ["Basic", "Pro", "Enterprise"];
-          setSaasUsers(prev =>
-            prev.map(u => {
-              if (u.id === userId) {
-                const nextIndex = (plans.indexOf(u.plan) + 1) % plans.length;
-                return { ...u, plan: plans[nextIndex] as any };
-              }
-              return u;
-            })
-          );
+          setSaasUsers(prev => prev.map(u => (u.id === userId ? { ...u, plan } : u)));
+          setToast({ message: `User plan updated to ${plan}`, type: "success" });
+        } else {
+          setToast({ message: data.error || "Failed to update user plan", type: "error" });
         }
       })
-      .catch(err => console.error("Cycle user plan failed:", err));
+      .catch(err => {
+        console.error("Set user plan failed:", err);
+        setToast({ message: "Network error while updating plan", type: "error" });
+      })
+      .finally(() => setActiveDropdown(null));
   };
+
+  const setUserBillingCycle = (userId: string, billingCycle: "Monthly" | "Yearly") => {
+    fetch("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "set_billing_cycle", userId, billingCycle }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setSaasUsers(prev => prev.map(u => (u.id === userId ? { ...u, billingCycle } : u)));
+          setToast({ message: `User billing cycle updated to ${billingCycle}`, type: "success" });
+        } else {
+          setToast({ message: data.error || "Failed to update user billing cycle", type: "error" });
+        }
+      })
+      .catch(err => {
+        console.error("Set user billing cycle failed:", err);
+        setToast({ message: "Network error while updating billing cycle", type: "error" });
+      })
+      .finally(() => setActiveDropdown(null));
+  };
+
+  const mrr = saasUsers.reduce((sum, u) => {
+    if (u.status !== "Active") return sum;
+    if (u.plan === "Enterprise") return sum + (u.billingCycle === "Yearly" ? 2490 / 12 : 249);
+    if (u.plan === "Pro") return sum + (u.billingCycle === "Yearly" ? 790 / 12 : 79);
+    if (u.plan === "Basic") return sum + (u.billingCycle === "Yearly" ? 290 / 12 : 29);
+    return sum;
+  }, 0);
+
+  const basicCount = saasUsers.filter(u => u.plan === "Basic").length;
+  const proCount = saasUsers.filter(u => u.plan === "Pro").length;
+  const enterpriseCount = saasUsers.filter(u => u.plan === "Enterprise").length;
 
   return (
     <div className="flex flex-row h-full w-full overflow-hidden bg-background text-foreground">
@@ -550,6 +599,19 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
 
           {/* Quick Header Indicators */}
           <div className="flex items-center gap-4">
+            {/* Search bar for Users tab - shown only when on users tab */}
+            {activeTab === "users" && safeUser.role === "admin" && (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  value={userSearchTerm}
+                  onChange={(e) => setUserSearchTerm(e.target.value)}
+                  className="pl-8 pr-4 py-1.5 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all w-52"
+                />
+              </div>
+            )}
             <ThemeToggle />
           </div>
         </header>
@@ -560,13 +622,7 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
         {/* TAB 1: Scraping Engine Console */}
         {activeTab === "console" && (
           <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0">
-            <header className="flex flex-col gap-1.5 border-b border-border/60 pb-4">
-              <h2 className="font-heading text-xl font-bold text-foreground flex items-center gap-2 uppercase tracking-wide">
-                <Cpu className="h-5 w-5 text-primary" />
-                Structora Console Dashboard
-              </h2>
-              <p className="text-xs text-muted-foreground">Configure search parameters, orchestrate Playwright nodes, and extract structured business data.</p>
-            </header>
+
 
             {/* Full Width Main Input Card */}
             <div className="p-6 bg-card border border-primary/30 shadow-md shadow-primary/5 rounded-2xl flex flex-col gap-6 transition-all hover:border-primary/50 relative overflow-hidden group">
@@ -759,6 +815,30 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                     })}
                   </div>
                 </div>
+
+                {/* Extraction Target Limit Card */}
+                <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
+                  <h3 className="text-xs font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wider font-heading">
+                    <Settings2 className="h-4 w-4 text-primary" />
+                    Extraction Target Limit
+                  </h3>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Set the maximum number of business records to extract during this parsing run.
+                  </p>
+                  <div className="flex items-center gap-3 pt-1">
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="100" 
+                      value={resultLimit} 
+                      onChange={(e) => setResultLimit(Number(e.target.value))}
+                      className="flex-1 accent-primary cursor-pointer" 
+                    />
+                    <div className="w-10 text-right font-bold text-primary bg-primary/10 px-2 py-1 rounded-lg text-xs flex justify-center items-center">
+                      {resultLimit}
+                    </div>
+                  </div>
+                </div>
               </section>
 
               {/* Data & Logs output */}
@@ -896,81 +976,214 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
 
         {/* TAB 2: Scraper Services Panel */}
         {activeTab === "services" && (
-          <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0">
-            <header className="flex flex-col gap-1.5 border-b border-border/60 pb-4">
-              <h2 className="font-heading text-xl font-bold text-foreground flex items-center gap-2 uppercase tracking-wide">
-                <Globe className="h-5 w-5 text-primary" />
-                Active Scraper Services
-              </h2>
-              <p className="text-xs text-muted-foreground">Monitor platform capabilities, active pricing plans, and pipeline usage metrics.</p>
-            </header>
+          <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0 pb-12">
 
+            {/* System Status Overview */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: "System Status", value: "Operational", sub: "All systems nominal", color: "emerald", dot: true },
+                { label: "Active Workers", value: "5 / 10", sub: "50% capacity in use", color: "blue", dot: false },
+                { label: "Scrapes Today", value: "1,247", sub: "+18% vs yesterday", color: "purple", dot: false },
+                { label: "Avg. Parse Time", value: "2.4s", sub: "Per supplier record", color: "orange", dot: false },
+              ].map((stat, i) => (
+                <div key={i} className="p-5 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-2">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{stat.label}</span>
+                  <div className="flex items-center gap-2">
+                    {stat.dot && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
+                    <h3 className={`text-xl font-heading font-extrabold tracking-tight text-${stat.color}-500`}>{stat.value}</h3>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{stat.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Core Service Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
-              {/* Card 1: AI Search Discover */}
-              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
-                <div className="p-3 bg-sky-500/10 text-sky-500 rounded-xl w-fit">
-                  <Search className="h-6 w-6" />
+              {/* Card 1: AI Search Discovery */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4 group hover:border-primary/40 transition-all">
+                <div className="flex items-start justify-between">
+                  <div className="p-3 bg-sky-500/10 text-sky-500 rounded-xl w-fit group-hover:bg-sky-500/20 transition-colors">
+                    <Search className="h-6 w-6" />
+                  </div>
+                  <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 rounded-full flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />Active
+                  </span>
                 </div>
                 <h3 className="text-sm font-bold text-foreground uppercase tracking-wide font-heading">AI Target Discovery</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Leverages Gemini AI semantics queries to scan business indexes, mapping target URLs based on exact intent filters.
+                  Leverages Gemini AI semantics queries to scan business indexes, mapping target URLs based on exact intent filters and location context.
                 </p>
-                <div className="mt-auto pt-4 border-t border-border/50 flex justify-between text-[10px] text-muted-foreground font-semibold">
-                  <span>Usage (Monthly)</span>
-                  <span className="text-foreground">420 / 1,000 Queries</span>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Monthly Usage</span><span className="text-foreground font-bold">420 / 1,000</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-sky-500 rounded-full" style={{ width: "42%" }} />
+                  </div>
                 </div>
               </div>
 
-              {/* Card 2: Playwright orchestrator */}
-              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
-                <div className="p-3 bg-pink-500/10 text-pink-500 rounded-xl w-fit">
-                  <Cpu className="h-6 w-6" />
+              {/* Card 2: Playwright Orchestrator */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4 group hover:border-primary/40 transition-all">
+                <div className="flex items-start justify-between">
+                  <div className="p-3 bg-pink-500/10 text-pink-500 rounded-xl w-fit group-hover:bg-pink-500/20 transition-colors">
+                    <Cpu className="h-6 w-6" />
+                  </div>
+                  <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 rounded-full flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />Active
+                  </span>
                 </div>
                 <h3 className="text-sm font-bold text-foreground uppercase tracking-wide font-heading">Playwright Browser Orchestrator</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Triggers headless Chromium instances that scroll dynamic elements, bypass honeypots, and extract pure DOM markup.
+                  Triggers headless Chromium instances that scroll dynamic elements, bypass honeypots, and extract pure DOM markup from JS-heavy pages.
                 </p>
-                <div className="mt-auto pt-4 border-t border-border/50 flex justify-between text-[10px] text-muted-foreground font-semibold">
-                  <span>Concurrency Cap</span>
-                  <span className="text-foreground">5 / 10 active worker nodes</span>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>Worker Nodes</span><span className="text-foreground font-bold">5 / 10 active</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-pink-500 rounded-full" style={{ width: "50%" }} />
+                  </div>
                 </div>
               </div>
 
-              {/* Card 3: Gemini Parsing */}
-              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
-                <div className="p-3 bg-purple-500/10 text-purple-500 rounded-xl w-fit">
-                  <ShieldCheck className="h-6 w-6" />
+              {/* Card 3: Gemini NLP Structurer */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4 group hover:border-primary/40 transition-all">
+                <div className="flex items-start justify-between">
+                  <div className="p-3 bg-purple-500/10 text-purple-500 rounded-xl w-fit group-hover:bg-purple-500/20 transition-colors">
+                    <ShieldCheck className="h-6 w-6" />
+                  </div>
+                  <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 rounded-full flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />Active
+                  </span>
                 </div>
                 <h3 className="text-sm font-bold text-foreground uppercase tracking-wide font-heading">Gemini Entity Structurer</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Translates messy unstructured text blobs into normalized JSON fields using deep LLM semantic translation filters.
+                  Translates messy unstructured text blobs into normalized JSON fields using deep LLM semantic translation filters, achieving 99.4% valid schema.
                 </p>
-                <div className="mt-auto pt-4 border-t border-border/50 flex justify-between text-[10px] text-muted-foreground font-semibold">
-                  <span>Accuracy Target</span>
-                  <span className="text-emerald-500 font-bold">99.4% Valid JSON</span>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>JSON Accuracy</span><span className="text-emerald-500 font-bold">99.4%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-purple-500 rounded-full" style={{ width: "99.4%" }} />
+                  </div>
                 </div>
               </div>
 
             </div>
+
+            {/* Active Pipeline Jobs + Worker Node Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+              {/* Pipeline Activity Feed */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
+                <h3 className="text-xs font-bold text-foreground font-heading uppercase tracking-wide flex items-center gap-2">
+                  <Database className="h-4 w-4 text-primary" />
+                  Recent Pipeline Jobs
+                </h3>
+                <div className="flex flex-col divide-y divide-border/50">
+                  {[
+                    { query: "Textile Suppliers in Surat", status: "completed", records: 18, time: "2m ago", color: "emerald" },
+                    { query: "Chemical Distributors Mumbai", status: "completed", records: 12, time: "9m ago", color: "emerald" },
+                    { query: "Steel Manufacturers Pune", status: "processing", records: 6, time: "Live", color: "blue" },
+                    { query: "Packaging Suppliers Delhi", status: "queued", records: 0, time: "Pending", color: "orange" },
+                    { query: "Food Exporters Ahmedabad", status: "completed", records: 22, time: "41m ago", color: "emerald" },
+                  ].map((job, i) => (
+                    <div key={i} className="py-3 flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <p className="text-xs font-semibold text-foreground truncate">{job.query}</p>
+                        <p className="text-[10px] text-muted-foreground">{job.records > 0 ? `${job.records} records extracted` : "Awaiting worker slot"}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] text-muted-foreground">{job.time}</span>
+                        <span className={`px-2 py-0.5 text-[9px] font-extrabold uppercase rounded-full bg-${job.color}-500/10 text-${job.color}-500`}>{job.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Distributed Worker Node Status */}
+              <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
+                <h3 className="text-xs font-bold text-foreground font-heading uppercase tracking-wide flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-primary" />
+                  Distributed Worker Nodes
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: "WRK-01", region: "Asia Pacific", status: "active", cpu: 72, task: "Crawling suppliers" },
+                    { id: "WRK-02", region: "South Asia", status: "active", cpu: 45, task: "NLP structuring" },
+                    { id: "WRK-03", region: "Asia Pacific", status: "active", cpu: 88, task: "DOM extraction" },
+                    { id: "WRK-04", region: "Global Hub", status: "idle", cpu: 0, task: "Awaiting job" },
+                    { id: "WRK-05", region: "South Asia", status: "active", cpu: 61, task: "Target discovery" },
+                    { id: "WRK-06", region: "Global Hub", status: "idle", cpu: 0, task: "Standby reserve" },
+                  ].map((node, i) => (
+                    <div key={i} className={`p-3 rounded-xl border text-xs flex flex-col gap-2 ${node.status === "active" ? "bg-primary/5 border-primary/20" : "bg-secondary/30 border-border"}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold font-mono text-foreground">{node.id}</span>
+                        <span className={`h-2 w-2 rounded-full ${node.status === "active" ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground"}`} />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground truncate">{node.task}</p>
+                      {node.status === "active" ? (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[9px] text-muted-foreground">
+                            <span>CPU</span><span className="text-foreground font-bold">{node.cpu}%</span>
+                          </div>
+                          <div className="w-full h-1 bg-secondary rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${node.cpu > 75 ? "bg-orange-500" : "bg-emerald-500"}`} style={{ width: `${node.cpu}%` }} />
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] text-muted-foreground italic">{node.region}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* API Integration Health */}
+            <div className="flex flex-col gap-4">
+              <h3 className="text-xs font-bold text-foreground font-heading uppercase tracking-wide">External API Integrations</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {[
+                  { name: "Google Gemini Flash 2.0", type: "LLM / NLP Engine", status: "Connected", latency: "142ms", icon: "🤖" },
+                  { name: "Playwright Cloud WSS", type: "Browser Automation", status: "Connected", latency: "38ms", icon: "🎭" },
+                  { name: "Prisma PostgreSQL", type: "Primary Database", status: "Connected", latency: "21ms", icon: "🗄️" },
+                  { name: "Export / CSV Stream", type: "Data Export Layer", status: "Ready", latency: "—", icon: "📤" },
+                ].map((api, i) => (
+                  <div key={i} className="p-5 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-3 hover:border-primary/30 transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xl">{api.icon}</span>
+                      <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 rounded-full">{api.status}</span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-foreground">{api.name}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{api.type}</p>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">
+                      Latency: <span className="text-foreground font-bold">{api.latency}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
           </div>
         )}
 
         {/* TAB 3: User Access Control (ADMIN ONLY) */}
         {activeTab === "users" && safeUser.role === "admin" && (
           <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0">
-            <header className="flex flex-col gap-1.5 border-b border-border/60 pb-4">
-              <h2 className="font-heading text-xl font-bold text-foreground flex items-center gap-2 uppercase tracking-wide">
-                <Users className="h-5 w-5 text-primary" />
-                User Access & Membership Registry
-              </h2>
-              <p className="text-xs text-muted-foreground">Administrative panel to toggle user validation status, modify membership tiers, and suspend cloud access nodes.</p>
-            </header>
+
 
             {/* Users Admin Grid Table */}
-            <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+            <div className="bg-card border border-border rounded-2xl overflow-visible shadow-xs min-h-[400px]">
+              <div className="overflow-visible">
+                <table className="w-full text-left border-collapse text-xs relative">
                   
                   {/* Table Headers */}
                   <thead>
@@ -978,6 +1191,7 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                       <th className="p-4 font-bold text-muted-foreground uppercase tracking-wider">User Details</th>
                       <th className="p-4 font-bold text-muted-foreground uppercase tracking-wider">Registration Date</th>
                       <th className="p-4 font-bold text-muted-foreground uppercase tracking-wider">SaaS Tier</th>
+                      <th className="p-4 font-bold text-muted-foreground uppercase tracking-wider">Billing Cycle</th>
                       <th className="p-4 font-bold text-muted-foreground uppercase tracking-wider">Clearance Status</th>
                       <th className="p-4 font-bold text-muted-foreground text-right uppercase tracking-wider">Actions</th>
                     </tr>
@@ -985,8 +1199,14 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
 
                   {/* Table Rows */}
                   <tbody className="divide-y divide-border/60">
-                    {saasUsers.map((item) => (
-                      <tr key={item.id} className="hover:bg-secondary/25 transition-colors">
+                    {filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          No users found matching your search.
+                        </td>
+                      </tr>
+                    ) : filteredUsers.map((item) => (
+                      <tr key={item.id} className="hover:bg-secondary/25 transition-colors relative">
                         <td className="p-4">
                           <div className="flex flex-col gap-0.5">
                             <p className="font-bold text-foreground text-sm leading-tight">{item.name}</p>
@@ -1001,12 +1221,50 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                         </td>
                         <td className="p-4 text-muted-foreground">{item.joinedDate}</td>
                         <td className="p-4">
-                          <button 
-                            onClick={() => cycleUserPlan(item.id)}
-                            className="px-2.5 py-1 bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold rounded-lg hover:bg-primary hover:text-primary-foreground transition-all uppercase"
-                          >
-                            {item.plan}
-                          </button>
+                          <div className="relative inline-block">
+                            <button 
+                              onClick={() => setActiveDropdown(activeDropdown?.userId === item.id && activeDropdown?.type === "plan" ? null : { userId: item.id, type: "plan" })}
+                              className="px-2.5 py-1 bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold rounded-lg hover:bg-primary hover:text-primary-foreground transition-all uppercase"
+                            >
+                              {item.plan}
+                            </button>
+                            {activeDropdown?.userId === item.id && activeDropdown?.type === "plan" && (
+                              <div className="absolute top-full left-0 mt-1 w-32 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col py-1">
+                                {["Basic", "Pro", "Enterprise"].map((plan: any) => (
+                                  <button
+                                    key={plan}
+                                    onClick={() => setUserPlan(item.id, plan)}
+                                    className={`px-4 py-2 text-left text-xs font-semibold hover:bg-secondary transition-colors ${item.plan === plan ? "text-primary" : "text-foreground"}`}
+                                  >
+                                    {plan}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="relative inline-block">
+                            <button 
+                              onClick={() => setActiveDropdown(activeDropdown?.userId === item.id && activeDropdown?.type === "billingCycle" ? null : { userId: item.id, type: "billingCycle" })}
+                              className="px-2.5 py-1 bg-secondary border border-border text-foreground text-[10px] font-bold rounded-lg hover:bg-secondary/80 transition-all uppercase"
+                            >
+                              {item.billingCycle || "Monthly"}
+                            </button>
+                            {activeDropdown?.userId === item.id && activeDropdown?.type === "billingCycle" && (
+                              <div className="absolute top-full left-0 mt-1 w-32 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col py-1">
+                                {["Monthly", "Yearly"].map((bc: any) => (
+                                  <button
+                                    key={bc}
+                                    onClick={() => setUserBillingCycle(item.id, bc)}
+                                    className={`px-4 py-2 text-left text-xs font-semibold hover:bg-secondary transition-colors ${item.billingCycle === bc ? "text-primary" : "text-foreground"}`}
+                                  >
+                                    {bc}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="p-4">
                           <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold rounded-full ${
@@ -1017,24 +1275,30 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                           </span>
                         </td>
                         <td className="p-4 text-right">
-                          <button
-                            onClick={() => toggleUserStatus(item.id)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-xl transition-all ${
-                              item.status === "Active" 
-                                ? "border border-destructive/20 text-destructive bg-destructive/5 hover:bg-destructive/10" 
-                                : "border border-emerald-500/20 text-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/10"
-                            }`}
-                          >
-                            {item.status === "Active" ? (
-                              <>
-                                <UserMinus className="h-3.5 w-3.5" /> Suspend
-                              </>
-                            ) : (
-                              <>
-                                <UserCheck className="h-3.5 w-3.5" /> Activate
-                              </>
+                          <div className="relative inline-block text-left">
+                            <button
+                              onClick={() => setActiveDropdown(activeDropdown?.userId === item.id && activeDropdown?.type === "action" ? null : { userId: item.id, type: "action" })}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold rounded-xl transition-all border border-border bg-secondary hover:bg-secondary/80 text-foreground"
+                            >
+                              Actions
+                            </button>
+                            {activeDropdown?.userId === item.id && activeDropdown?.type === "action" && (
+                              <div className="absolute top-full right-0 mt-1 w-36 bg-card border border-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col py-1">
+                                <button
+                                  onClick={() => setUserStatus(item.id, "Active")}
+                                  className={`flex items-center gap-2 px-4 py-2 text-left text-xs font-semibold hover:bg-emerald-500/10 transition-colors ${item.status === "Active" ? "text-emerald-500 bg-emerald-500/5" : "text-foreground"}`}
+                                >
+                                  <UserCheck className="h-3.5 w-3.5" /> Activate
+                                </button>
+                                <button
+                                  onClick={() => setUserStatus(item.id, "Suspended")}
+                                  className={`flex items-center gap-2 px-4 py-2 text-left text-xs font-semibold hover:bg-destructive/10 transition-colors ${item.status === "Suspended" ? "text-destructive bg-destructive/5" : "text-foreground"}`}
+                                >
+                                  <UserMinus className="h-3.5 w-3.5" /> Suspend
+                                </button>
+                              </div>
                             )}
-                          </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1049,32 +1313,24 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
         {/* TAB 4: Subscription & Billing Metrics (ADMIN ONLY) */}
         {activeTab === "billing" && safeUser.role === "admin" && (
           <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0">
-            <header className="flex flex-col gap-1.5 border-b border-border/60 pb-4">
-              <h2 className="font-heading text-xl font-bold text-foreground flex items-center gap-2 uppercase tracking-wide">
-                <CreditCard className="h-5 w-5 text-primary" />
-                SaaS Subscription & Financial Dashboard
-              </h2>
-              <p className="text-xs text-muted-foreground">Overview of subscription revenue trends, average revenue per user (ARPU), and platform usage metrics.</p>
-            </header>
-
             {/* Financial Overview Metrics Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
               {/* Card 1: MRR */}
               <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-3">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Monthly Recurring Revenue (MRR)</span>
-                <h3 className="text-3xl font-heading font-extrabold text-foreground tracking-tight">$14,850</h3>
+                <h3 className="text-3xl font-heading font-extrabold text-foreground tracking-tight">${Math.round(mrr).toLocaleString()}</h3>
                 <div className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
-                  <BarChart3 className="h-3.5 w-3.5" /> +12.4% vs last month
+                  <BarChart3 className="h-3.5 w-3.5" /> Derived from active users
                 </div>
               </div>
 
               {/* Card 2: Active Tiers */}
               <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-3">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Active SaaS Licenses</span>
-                <h3 className="text-3xl font-heading font-extrabold text-foreground tracking-tight">186 Accounts</h3>
+                <h3 className="text-3xl font-heading font-extrabold text-foreground tracking-tight">{saasUsers.length} Accounts</h3>
                 <div className="text-[10px] text-muted-foreground font-semibold">
-                  6 Enterprise • 42 Pro • 138 Basic
+                  {enterpriseCount} Enterprise • {proCount} Pro • {basicCount} Basic
                 </div>
               </div>
 
@@ -1125,9 +1381,9 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                     <PieChart>
                       <Pie
                         data={[
-                          { name: 'Enterprise', value: 6, color: '#8b5cf6' },
-                          { name: 'Pro', value: 42, color: '#3b82f6' },
-                          { name: 'Basic', value: 138, color: '#10b981' },
+                          { name: 'Enterprise', value: enterpriseCount, color: '#8b5cf6' },
+                          { name: 'Pro', value: proCount, color: '#3b82f6' },
+                          { name: 'Basic', value: basicCount, color: '#10b981' },
                         ]}
                         cx="50%"
                         cy="50%"
@@ -1138,9 +1394,9 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                         stroke="none"
                       >
                         {[
-                          { name: 'Enterprise', value: 6, color: '#8b5cf6' },
-                          { name: 'Pro', value: 42, color: '#3b82f6' },
-                          { name: 'Basic', value: 138, color: '#10b981' },
+                          { name: 'Enterprise', value: enterpriseCount, color: '#8b5cf6' },
+                          { name: 'Pro', value: proCount, color: '#3b82f6' },
+                          { name: 'Basic', value: basicCount, color: '#10b981' },
                         ].map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
@@ -1152,6 +1408,60 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                 </div>
               </div>
             </div>
+
+            {/* SaaS Pricing Definitions Admin Section */}
+            <div className="flex flex-col gap-4 mt-2">
+              <h3 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Manage SaaS Pricing Definitions (USD)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
+                  <h4 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Basic Tier</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Monthly Price ($ USD)</label>
+                      <input type="number" defaultValue={29} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground font-mono focus:outline-none focus:border-primary" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Yearly Price ($ USD)</label>
+                      <input type="number" defaultValue={290} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground font-mono focus:outline-none focus:border-primary" />
+                    </div>
+                    <button onClick={() => setToast({ message: "Basic Tier pricing updated globally.", type: "success" })} className="w-full py-2 mt-2 bg-secondary text-foreground text-xs font-bold rounded-xl hover:bg-primary hover:text-primary-foreground transition-all">Update Pricing</button>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
+                  <h4 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Pro Tier</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Monthly Price ($ USD)</label>
+                      <input type="number" defaultValue={79} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground font-mono focus:outline-none focus:border-primary" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Yearly Price ($ USD)</label>
+                      <input type="number" defaultValue={790} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground font-mono focus:outline-none focus:border-primary" />
+                    </div>
+                    <button onClick={() => setToast({ message: "Pro Tier pricing updated globally.", type: "success" })} className="w-full py-2 mt-2 bg-secondary text-foreground text-xs font-bold rounded-xl hover:bg-primary hover:text-primary-foreground transition-all">Update Pricing</button>
+                  </div>
+                </div>
+
+                <div className="p-6 bg-card border border-border rounded-2xl shadow-xs flex flex-col gap-4">
+                  <h4 className="text-sm font-bold text-foreground font-heading uppercase tracking-wide">Enterprise Tier</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Monthly Price ($ USD)</label>
+                      <input type="number" defaultValue={249} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground font-mono focus:outline-none focus:border-primary" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Yearly Price ($ USD)</label>
+                      <input type="number" defaultValue={2490} className="w-full mt-1 px-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground font-mono focus:outline-none focus:border-primary" />
+                    </div>
+                    <button onClick={() => setToast({ message: "Enterprise Tier pricing updated globally.", type: "success" })} className="w-full py-2 mt-2 bg-secondary text-foreground text-xs font-bold rounded-xl hover:bg-primary hover:text-primary-foreground transition-all">Update Pricing</button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -1425,14 +1735,6 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
         {/* TAB 5: Platform Settings Panel (Admin Only) */}
         {activeTab === "settings" && safeUser.role === "admin" && (
           <div className="flex-1 flex flex-col w-full max-w-[1800px] mx-auto gap-8 animate-fade-in pt-8 md:pt-0 pb-12">
-            <header className="flex flex-col gap-1.5 border-b border-border/60 pb-4">
-              <h2 className="font-heading text-xl font-bold text-foreground flex items-center gap-2 uppercase tracking-wide">
-                <Settings className="h-5 w-5 text-primary" />
-                Platform Configuration & API Credentials
-              </h2>
-              <p className="text-xs text-muted-foreground">Manage core system integrations, external API keys, and Playwright worker node endpoints safely.</p>
-            </header>
-
             <div className="flex flex-col gap-6">
               {/* Credentials Security Warning */}
               <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-start gap-3">
@@ -1440,7 +1742,7 @@ export function DashboardMock({ user, onLogout, saasUsers: propsSaasUsers, onUpd
                 <div className="flex flex-col gap-1">
                   <h4 className="text-xs font-bold text-amber-500">End-to-End Encryption Enabled</h4>
                   <p className="text-[10px] text-amber-500/80 leading-relaxed">
-                    API keys and webhook URLs are encrypted before resting in the secure database. Modifying these values will instantly update the routing rules for the Structora data extraction nodes.
+                    API keys and webhook URLs are encrypted before resting in the secure database. Modifying these values will instantly update the routing rules for the NardLens data extraction nodes.
                   </p>
                 </div>
               </div>

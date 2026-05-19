@@ -2,7 +2,7 @@
 
 /**
  * @file sidebar.tsx
- * @description Renders a highly responsive and custom-styled sidebar component for Structora.
+ * @description Renders a highly responsive and custom-styled sidebar component for NardLens.
  * Dynamically adjusts visible navigation paths depending on user access clearance roles ('admin' vs 'user').
  * Features a client-side layout toggle for responsive scaling across mobile viewports and desktop setups.
  * Includes complete academic commentary matching Ph.D. level requirements.
@@ -82,7 +82,7 @@ export function Sidebar({
             </div>
             {!isCollapsed && (
               <span className="font-heading font-extrabold text-base tracking-wider uppercase whitespace-nowrap transition-all duration-300 animate-fade-in">
-                Structora <span className="text-primary font-medium">AI</span>
+                NardLens <span className="text-primary font-medium">AI</span>
               </span>
             )}
           </div>

@@ -28,6 +28,7 @@ export async function GET() {
         mobile: true,
         plan: true,
         status: true,
+        billingCycle: true,
         joinedDate: true,
       },
       orderBy: { joinedDate: "desc" },
@@ -51,7 +52,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized access" }, { status: 403 });
     }
 
-    const { action, userId } = await req.json();
+    const body = await req.json();
+    const { action, userId } = body;
     if (!action || !userId) {
       return NextResponse.json({ error: "Action and userId are required" }, { status: 400 });
     }
@@ -76,6 +78,17 @@ export async function POST(req: NextRequest) {
       });
       return NextResponse.json({ success: true, user: updated });
     }
+    
+    if (action === "set_status") {
+      if (!["Active", "Suspended"].includes(body.status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      }
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { status: body.status },
+      });
+      return NextResponse.json({ success: true, user: updated });
+    }
 
     if (action === "cycle_plan") {
       const plans = ["Basic", "Pro", "Enterprise"];
@@ -85,6 +98,28 @@ export async function POST(req: NextRequest) {
       const updated = await prisma.user.update({
         where: { id: userId },
         data: { plan: nextPlan },
+      });
+      return NextResponse.json({ success: true, user: updated });
+    }
+
+    if (action === "set_plan") {
+      if (!["Basic", "Pro", "Enterprise"].includes(body.plan)) {
+        return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+      }
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { plan: body.plan },
+      });
+      return NextResponse.json({ success: true, user: updated });
+    }
+
+    if (action === "set_billing_cycle") {
+      if (!["Monthly", "Yearly"].includes(body.billingCycle)) {
+        return NextResponse.json({ error: "Invalid billing cycle" }, { status: 400 });
+      }
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: { billingCycle: body.billingCycle },
       });
       return NextResponse.json({ success: true, user: updated });
     }
