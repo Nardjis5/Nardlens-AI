@@ -58,6 +58,11 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("Login error:", error);
     const msg = error?.message || "";
+    if (msg.includes("DATABASE_URL environment variable is missing")) {
+      return NextResponse.json({
+        error: "Database Connection Failed: DATABASE_URL environment variable is missing in the production platform settings."
+      }, { status: 503 });
+    }
     if (msg.includes("Authentication failed") || msg.includes("Can't reach database") || msg.includes("looks like your database is not running")) {
       return NextResponse.json({
         error: "Database Connection Failed: Please verify that PostgreSQL is running locally and that the credentials/database in your .env file are correct."

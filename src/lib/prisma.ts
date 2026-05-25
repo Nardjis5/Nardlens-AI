@@ -18,7 +18,14 @@ if (globalForPrisma.prisma) {
   prismaInstance = globalForPrisma.prisma;
 } else {
   const connectionString = process.env.DATABASE_URL;
-  const pool = new Pool({ connectionString });
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is missing. Please set it in your environment configurations.");
+  }
+  
+  const pool = new Pool({ 
+    connectionString,
+    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined
+  });
   const adapter = new PrismaPg(pool);
   
   prismaInstance = new PrismaClient({
