@@ -17,14 +17,11 @@ let prismaInstance: PrismaClient;
 if (globalForPrisma.prisma) {
   prismaInstance = globalForPrisma.prisma;
 } else {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL environment variable is missing. Please set it in your environment configurations.");
-  }
+  const connectionString = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/postgres";
   
   const pool = new Pool({ 
     connectionString,
-    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined
+    ssl: process.env.NODE_ENV === "production" && process.env.DATABASE_URL ? { rejectUnauthorized: false } : undefined
   });
   const adapter = new PrismaPg(pool);
   
