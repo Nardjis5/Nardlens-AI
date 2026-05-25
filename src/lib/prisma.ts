@@ -17,11 +17,14 @@ let prismaInstance: PrismaClient;
 if (globalForPrisma.prisma) {
   prismaInstance = globalForPrisma.prisma;
 } else {
-  const connectionString = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/postgres";
+  const connectionString = process.env.DATABASE_URL || process.env.STRUCTORA_DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/postgres";
+  if (process.env.STRUCTORA_DATABASE_URL && !process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = process.env.STRUCTORA_DATABASE_URL;
+  }
   
   const pool = new Pool({ 
     connectionString,
-    ssl: process.env.NODE_ENV === "production" && process.env.DATABASE_URL ? { rejectUnauthorized: false } : undefined
+    ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined
   });
   const adapter = new PrismaPg(pool);
   
