@@ -14,10 +14,13 @@ export async function register() {
     const { execSync } = await import("child_process");
     const { Client } = await import("pg");
 
-    const dbUrl = process.env.DATABASE_URL;
+    const dbUrl = process.env.DATABASE_URL || process.env.STRUCTORA_DATABASE_URL;
     if (!dbUrl) {
       console.log("[NardLens] No DATABASE_URL found. Skipping auto-provisioning.");
       return;
+    }
+    if (process.env.STRUCTORA_DATABASE_URL && !process.env.DATABASE_URL) {
+      process.env.DATABASE_URL = process.env.STRUCTORA_DATABASE_URL;
     }
 
     // Parse DATABASE_URL
