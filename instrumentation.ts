@@ -53,6 +53,12 @@ export async function register() {
       console.log(`[NardLens] Database '${targetDb}' does not exist or is inaccessible. Attempting auto-creation...`);
     }
 
+    // Skip heavy DB operations in Vercel Serverless to prevent connection exhaustion
+    if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+      console.log("[NardLens] Skipping auto-provisioning and migrations on Vercel/Production.");
+      return;
+    }
+
     // Step 2: If DB does not exist, connect to 'postgres' to create it
     if (!dbExists) {
       const superusers = [
