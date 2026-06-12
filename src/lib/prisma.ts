@@ -17,9 +17,18 @@ let prismaInstance: PrismaClient;
 if (globalForPrisma.prisma) {
   prismaInstance = globalForPrisma.prisma;
 } else {
-  const connectionString = process.env.DATABASE_URL || process.env.STRUCTORA_DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/postgres";
-  if (process.env.STRUCTORA_DATABASE_URL && !process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = process.env.STRUCTORA_DATABASE_URL;
+  const connectionString = 
+    process.env.DATABASE_URL || 
+    process.env.NARDLENS_DATABASE_URL || 
+    process.env.NARDLENS_PRISMA_DATABASE_URL || 
+    process.env.NARDLENS_POSTGRES_URL || 
+    process.env.POSTGRES_PRISMA_URL || 
+    process.env.POSTGRES_URL || 
+    process.env.STRUCTORA_DATABASE_URL || 
+    "postgresql://postgres:postgres@localhost:5432/postgres";
+
+  if (connectionString && !process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = connectionString;
   }
   
   const pool = new Pool({ 
