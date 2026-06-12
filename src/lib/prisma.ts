@@ -33,6 +33,9 @@ if (globalForPrisma.prisma) {
   
   const pool = new Pool({ 
     connectionString,
+    max: process.env.NODE_ENV === "production" ? 1 : undefined, // Limit to 1 connection per serverless instance
+    idleTimeoutMillis: 15000,
+    connectionTimeoutMillis: 10000,
     ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined
   });
   const adapter = new PrismaPg(pool);
