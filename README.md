@@ -41,7 +41,7 @@ Follow these steps to launch the entire multi-service stack in your local develo
 Create a `.env` file in the root directory:
 ```bash
 # PostgreSQL Connection URL
-DATABASE_URL="postgresql://webnazar:secure_password@127.0.0.1:5432/nardlens_db"
+DATABASE_URL="postgresql://nadlens:secure_password@127.0.0.1:5432/nardlens_db"
 
 # Optional Defaults (Can also be managed directly in settings)
 GEMINI_API_KEY=""
