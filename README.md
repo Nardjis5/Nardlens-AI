@@ -41,7 +41,7 @@ Follow these steps to launch the entire multi-service stack in your local develo
 Create a `.env` file in the root directory:
 ```bash
 # PostgreSQL Connection URL
-DATABASE_URL="postgresql://nadlens:secure_password@127.0.0.1:5432/nardlens_db"
+DATABASE_URL="postgresql://nardlens:secure_password@127.0.0.1:5432/nardlens_db"
 
 # Optional Defaults (Can also be managed directly in settings)
 GEMINI_API_KEY=""
@@ -56,7 +56,7 @@ Ensure you have run Prisma schema generator and migrations, then run the databas
 # Push the schema to your PostgreSQL instance
 npx prisma db push
 
-# Seed the default administrator account (admin@webnazar.com / Admin@2025#)
+# Seed the default administrator account (admin@nardlens.com / Admin@2025#)
 npx tsx seed_admin.ts
 
 # Seed dummy SaaS users of different billing plans and cycles for metrics testing

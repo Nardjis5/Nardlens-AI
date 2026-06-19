@@ -11,8 +11,8 @@ import bcrypt from "bcryptjs";
 async function main() {
   console.log("[Seed] Seeding database...");
 
-  // Seed primary admin: webnazar@gmail.com
-  const email1 = "webnazar@gmail.com";
+  // Seed primary admin: nardlens@gmail.com
+  const email1 = "nardlens@gmail.com";
   const user1 = await prisma.user.findUnique({ where: { email: email1 } });
 
   if (!user1) {
@@ -20,7 +20,7 @@ async function main() {
     await prisma.user.create({
       data: {
         name: "Administrator",
-        username: "webnazar",
+        username: "nardlens",
         email: email1,
         mobile: "",
         plan: "Enterprise",
@@ -29,13 +29,13 @@ async function main() {
         password: hashedPassword,
       },
     });
-    console.log("[Seed] ✅ Seeded primary admin: webnazar@gmail.com");
+    console.log("[Seed] ✅ Seeded primary admin: nardlens@gmail.com");
   } else {
     console.log("[Seed] ℹ️  Primary admin account already exists.");
   }
 
-  // Seed secondary admin: admin@webnazar.com
-  const email2 = "admin@webnazar.com";
+  // Seed secondary admin: admin@nardlens.com
+  const email2 = "admin@nardlens.com";
   const user2 = await prisma.user.findUnique({ where: { email: email2 } });
 
   if (!user2) {
@@ -52,7 +52,7 @@ async function main() {
         password: hashedPassword,
       },
     });
-    console.log("[Seed] ✅ Seeded secondary admin: admin@webnazar.com");
+    console.log("[Seed] ✅ Seeded secondary admin: admin@nardlens.com");
   } else {
     console.log("[Seed] ℹ️  Secondary admin account already exists.");
   }
