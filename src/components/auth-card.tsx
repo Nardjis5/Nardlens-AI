@@ -242,7 +242,7 @@ export function AuthCard({ onSuccess, defaultMode = "login" }: AuthCardProps) {
                 type="tel"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                placeholder="+91 98200 12345"
+                placeholder="+49 1578 1558798"
                 className="w-full pl-10 pr-4 py-2 bg-background border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
               />
             </div>

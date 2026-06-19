@@ -185,8 +185,8 @@ export default function Home() {
                 <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl text-emerald-400 font-mono text-[10px] space-y-1 mt-2">
                   <div>&#123;</div>
                   <div className="pl-4">"company_name": "ABC Suppliers Ltd",</div>
-                  <div className="pl-4">"location": "Andheri East, Mumbai",</div>
-                  <div className="pl-4">"phone": "+91 99123 45678"</div>
+                  <div className="pl-4">"location": "Germany",</div>
+                  <div className="pl-4">"phone": "+49 1578 1558798"</div>
                   <div>&#125;</div>
                 </div>
               </div>
